@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="color-scheme" content="light dark">
+  <title>HEMIS · Джарвис</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <header class="hero" id="hero">
+    <div class="hero-row">
+      <div class="hero-text">
+        <h1 id="title">Расписание</h1>
+        <p id="subtitle"></p>
+      </div>
+      <button class="icon-btn" id="refresh" data-a="refresh" aria-label="Обновить"></button>
+    </div>
+    <div class="hero-extra" id="heroExtra"></div>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <nav class="tabs" id="tabs" aria-label="Разделы"></nav>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
