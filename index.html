@@ -7,10 +7,23 @@
   <title>HEMIS · Джарвис</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script>
+    /* Ускорение старта: тема до первой отрисовки и предварительное соединение с ботом (его адрес приходит в ?api=). */
+    (function () {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      var dark = tg ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      var api = new URLSearchParams(location.search).get("api");
+      if (api) { var l = document.createElement("link"); l.rel = "preconnect"; l.href = api; document.head.appendChild(l); }
+    })();
+  </script>
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
 </head>
 <body>
   <header class="hero" id="hero">
     <div class="hero-row">
+      <button class="icon-btn" id="back" data-a="back" aria-label="Назад" hidden></button>
       <div class="hero-text">
         <h1 id="title">Расписание</h1>
         <p id="subtitle"></p>
@@ -20,11 +33,11 @@
     <div class="hero-extra" id="heroExtra"></div>
   </header>
 
-  <main id="view" aria-live="polite"></main>
+  <main id="view" aria-live="polite">
+    <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+  </main>
 
   <nav class="tabs" id="tabs" aria-label="Разделы"></nav>
-
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <div class="toast" id="toast" role="status"></div>
 </body>
 </html>
