@@ -51,7 +51,9 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
 };
+const HERO_ICON = { schedule: "calendar", nb: "nb", exams: "exam", grades: "grades", more: "more", tasks: "tasks", resources: "book", subjects: "layers", contract: "wallet", settings: "bell" };
 const ico = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
 
 // ---------------------------------------------------------------- состояние и кэш
@@ -62,7 +64,7 @@ const TABS = [
   { id: "grades", label: "Оценки", icon: "grades" },
   { id: "more", label: "Ещё", icon: "more" },
 ];
-const S = { tab: "schedule", sub: null, week: 0, day: null, sem: {}, examTab: null, taskTab: "active", res: { subject: null, name: "" }, open: new Set() };
+const S = { tab: "schedule", sub: null, week: 0, day: null, sem: {}, examTab: null, taskTab: "active", resKind: "all", res: { subject: null, name: "" }, open: new Set(), pct: {} };
 
 // Сколько данные считаются свежими на устройстве: пока свежие — сеть не трогаем вовсе (меньше запросов к боту и HEMIS).
 const TTL = { schedule: 10 * 60e3, nb: 30 * 60e3, exams: 3 * 3600e3, grades: 60 * 60e3, subjects: 60 * 60e3, tasks: 30 * 60e3, resources: 3 * 3600e3, contract: 6 * 3600e3, settings: 0 };
@@ -143,41 +145,54 @@ const fileList = (files) => files && files.length ? `<div class="files">${files.
 
 // ---------------------------------------------------------------- расписание
 const typeClass = (t) => { const x = (t || "").toLowerCase(); return x.includes("лек") || x.includes("lec") ? "tag-lec" : x.includes("лаб") || x.includes("lab") ? "tag-lab" : "tag-prac"; };
+const hhmm = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+
+/** Состояние пары по текущему времени: past | now | future и процент пройденного (для now). */
+function lessonState(l, isToday, nowMin) {
+  if (!isToday) return { state: "future", pct: 0 };
+  const a = toMin(l.start), b = toMin(l.end);
+  if (nowMin >= b) return { state: "past", pct: 100 };
+  if (nowMin >= a) return { state: "now", pct: Math.max(2, Math.min(100, Math.round(((nowMin - a) / Math.max(b - a, 1)) * 100))) };
+  return { state: "future", pct: 0 };
+}
+
+function lessonCard(l, st) {
+  const key = `l${l.date}${l.start}${l.subject}`.replace(/\s+/g, ""), open = S.open.has(key);
+  const no = (String(l.pair || "").match(/\d+/) || [""])[0];
+  const place = [l.room, l.building].filter(Boolean).join(" · ");
+  const dur = toMin(l.end) - toMin(l.start);
+  const rows = [["Время", `${l.start}–${l.end}${dur > 0 ? ` · ${dur} мин` : ""}`], ["Пара", no ? `${no}-я` : ""], ["Тип", l.type], ["Аудитория", l.room], ["Корпус", l.building], ["Преподаватель", l.teacher], ["Группа", l.group]].filter(([, v]) => v);
+  const prev = S.pct[key] ?? 0;
+  if (st.state === "now") S.pct[key] = st.pct;
+  const prog = st.state === "now" ? `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${st.pct}"><i style="width:${prev}%" data-w="${st.pct}"></i></div>` : "";
+  const chips = `${no ? `<span class="num">${esc(no)}</span>` : ""}${l.type ? `<span class="tag ${typeClass(l.type)}">${esc(l.type)}</span>` : ""}`
+    + (st.state === "now" ? '<span class="tag tag-now"><i></i>Идёт сейчас</span>' : st.state === "past" ? `<span class="done">${ico("check")}Завершена</span>` : "");
+  return `<div class="card lesson ${st.state} ${open ? "open" : ""}">
+    <div class="lesson-main" data-a="lesson" data-key="${esc(key)}" role="button" tabindex="0" aria-expanded="${open}">
+      <div class="l-time"><b>${esc(l.start)}</b><span>${esc(l.end)}</span></div><div class="l-sep"></div>
+      <div class="l-body"><div class="chips">${chips}</div><div class="lname">${esc(l.subject)}</div>
+        <div class="meta">${place ? `<div>${ico("pin")}<span>${esc(place)}</span></div>` : ""}${l.teacher ? `<div>${ico("user")}<span>${esc(l.teacher)}</span></div>` : ""}</div>${prog}</div>
+      <span class="l-chev">${ico("right")}</span></div>
+    <div class="l-detail"><div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div></div></div>`;
+}
 
 function renderSchedule(d) {
-  const mon = parseISO(d.monday), today = nowTk().iso, days = [];
+  const mon = parseISO(d.monday), now = nowTk(), today = now.iso, days = [];
   for (let i = 0; i < 7; i++) {
-    const day = iso(addDays(mon, i)), lessons = d.lessons.filter((l) => l.date === day);
-    if (i < 6 || lessons.length) days.push({ iso: day, i, lessons });
+    const day = iso(addDays(mon, i));
+    days.push({ iso: day, i, lessons: d.lessons.filter((l) => l.date === day).sort((a, b) => toMin(a.start) - toMin(b.start)) });
   }
   if (!S.day || !days.some((x) => x.iso === S.day)) S.day = (days.find((x) => x.iso === today) || days.find((x) => x.lessons.length) || days[0]).iso;
   const label = S.week === 0 ? "Эта неделя" : S.week === 1 ? "Следующая неделя" : S.week === -1 ? "Прошлая неделя" : "Неделя";
   const head = pager({ label, sub: `${dm(d.monday)} – ${dm(d.sunday)}`, prev: S.week > -8, next: S.week < 8, action: "week" });
-  const chips = `<div class="days">${days.map((x) => `<button class="day ${x.iso === S.day ? "sel" : ""} ${x.iso === today ? "today" : ""} ${x.lessons.length ? "has" : ""}" data-a="day" data-day="${x.iso}"><span>${WD[x.i]}</span><b>${Number(x.iso.slice(8))}</b><i class="dot"></i></button>`).join("")}</div>`;
+  const strip = `<div class="days">${days.map((x) => `<button class="day ${x.iso === S.day ? "sel" : ""} ${x.iso === today ? "today" : ""} ${x.lessons.length ? "has" : ""}" data-a="day" data-day="${x.iso}" aria-label="${WD[x.i]}, ${dm(x.iso)}"><span>${WD[x.i]}</span><b>${Number(x.iso.slice(8))}</b><i class="dot"></i></button>`).join("")}</div>`;
   if (!d.published) return head + empty("⏳", "Расписание ещё не опубликовано", "Университет пока не выложил эту неделю.");
-  const cur = days.find((x) => x.iso === S.day), lessons = cur.lessons;
-  if (!lessons.length) return head + chips + empty("🎉", "Пар нет", "Свободный день — можно отдохнуть или заняться делами.");
-  const now = nowTk(), isToday = cur.iso === today;
-  let nextDone = false;
-  const cards = lessons.map((l) => {
-    let state = "", tag = "", prog = "";
-    if (isToday) {
-      const a = toMin(l.start), b = toMin(l.end);
-      if (now.min >= b) state = "past";
-      else if (now.min >= a) { state = "now"; tag = '<span class="tag tag-now">Идёт сейчас</span>'; prog = `<div class="progress"><i style="width:${Math.max(4, Math.min(100, ((now.min - a) / (b - a)) * 100))}%"></i></div>`; }
-      else if (!nextDone) { nextDone = true; const m = a - now.min; tag = `<span class="tag tone-warn">Через ${m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч ${m % 60} мин`}</span>`; }
-    }
-    const place = [l.room, l.building].filter(Boolean).join(" · ");
-    return `<div class="card lesson ${state}">
-      <div class="time"><b>${esc(l.start)}</b><span>${esc(l.end)}</span></div>
-      <div class="lbody">
-        <div class="chips" style="margin-bottom:5px">${l.pair ? `<span class="chip">${esc(l.pair)}</span>` : ""}${l.type ? `<span class="tag ${typeClass(l.type)}">${esc(l.type)}</span>` : ""}${tag}</div>
-        <div class="lname">${esc(l.subject)}</div>
-        <div class="meta">${place ? `<div>${ico("pin")}${esc(place)}</div>` : ""}${l.teacher ? `<div>${ico("user")}${esc(l.teacher)}</div>` : ""}</div>${prog}
-      </div></div>`;
-  }).join("");
+  const cur = days.find((x) => x.iso === S.day), lessons = cur.lessons, isToday = cur.iso === today;
   const title = isToday ? "Сегодня" : `${WD[cur.i]}, ${dm(cur.iso)}`;
-  return head + chips + `<div class="summary"><b>${title} · ${pairsWord(lessons.length)}</b><span class="muted small">${esc(lessons[0].start)}–${esc(lessons[lessons.length - 1].end)}</span></div>` + cards;
+  if (!lessons.length) return head + strip + `<div class="dayhead off"><b>${title} · пар нет</b></div>` + empty("🎉", "Свободный день", "Можно отдохнуть или заняться делами.");
+  const from = Math.min(...lessons.map((l) => toMin(l.start))), to = Math.max(...lessons.map((l) => toMin(l.end)));
+  return head + strip + `<div class="dayhead"><b>${title} · ${lessons.length} ${plural(lessons.length, "пара", "пары", "пар")}</b><span class="range">${ico("clock")}${hhmm(from)} – ${hhmm(to)}</span></div>`
+    + lessons.map((l) => lessonCard(l, lessonState(l, isToday, now.min))).join("");
 }
 
 // ---------------------------------------------------------------- НБ
@@ -330,7 +345,15 @@ function renderResources(d) {
       <span class="grow"><span class="name" style="display:block">${esc(x.name)}</span><span class="muted small">${x.resources} ${plural(x.resources, "материал", "материала", "материалов")}</span></span><span class="muted">${ico("right")}</span></button>`).join("");
   }
   if (!d.resources.length) return empty("✨", "Материалов нет", "");
-  return `<div class="summary"><b>${d.resources.length} ${plural(d.resources.length, "тема", "темы", "тем")}</b><span class="muted small">нажмите на тему</span></div>` + d.resources.map((r) => {
+  // Разделы по типу занятия — ровно как отдаёт HEMIS (лекции, практика и т. д.)
+  const kinds = [...new Set(d.resources.map((r) => r.kind).filter(Boolean))];
+  const rank = (k) => (/лек/i.test(k) ? 0 : /практ|семин/i.test(k) ? 1 : 2);
+  kinds.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, "ru"));
+  if (S.resKind !== "all" && !kinds.includes(S.resKind)) S.resKind = "all";
+  const count = (k) => d.resources.filter((r) => r.kind === k).length;
+  const tabs = kinds.length > 1 ? seg([["all", "Все", `${d.resources.length} шт.`], ...kinds.map((k) => [k, k, `${count(k)} шт.`])], S.resKind, "reskind") : "";
+  const shown = S.resKind === "all" ? d.resources : d.resources.filter((r) => r.kind === S.resKind);
+  return tabs + `<div class="dayhead off"><b>${shown.length} ${plural(shown.length, "тема", "темы", "тем")}</b><span class="muted small">нажмите на тему</span></div>` + shown.map((r) => {
     const key = `r${r.id}`, open = S.open.has(key);
     const items = r.items.map((i) => `${i.url ? `<div class="file">${ico("link")}<span><a class="link" data-a="link" data-url="${esc(i.url)}">${esc(i.comment || i.type || i.url)}</a></span></div>` : ""}${fileList(i.files)}`).join("");
     return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="item-top"><div class="name">${esc(r.title)}</div>${r.files_count ? `<span class="pill">${ico("file")}${r.files_count}</span>` : ""}</div>
@@ -390,8 +413,15 @@ function errorView(e) {
 // ---------------------------------------------------------------- DOM
 if (typeof document !== "undefined") {
   const $ = (id) => document.getElementById(id);
-  const view = $("view");
-  let toastTimer = 0, prefetched = false;
+  const view = $("view"), loadbar = $("loadbar"), refreshBtn = $("refresh");
+  const SKELETON = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  let toastTimer = 0, lastHtml = "", lastIcon = "", pressing = false, deferred = null, lastFetch = 0;
+
+  // Нижняя панель строится один раз: пересоздание кнопок во время нажатия «съедало» тапы.
+  $("tabsIn").innerHTML = TABS.map((t) => `<button class="tab" data-a="tab" data-tab="${t.id}">${ico(t.icon)}<span>${t.label}</span></button>`).join("");
+  const tabEls = [...document.querySelectorAll(".tab")];
+  $("back").innerHTML = ico("left");
+  $("stampIco").innerHTML = ico("clock");
 
   function toast(text) {
     const el = $("toast"); el.textContent = text; el.classList.add("show");
@@ -400,88 +430,105 @@ if (typeof document !== "undefined") {
   const haptic = (kind) => { try { tg && tg.HapticFeedback && (kind ? tg.HapticFeedback.notificationOccurred(kind) : tg.HapticFeedback.selectionChanged()); } catch (e) { /* нет */ } };
 
   function setTheme() {
-    const dark = tg ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    try { tg && tg.setHeaderColor && tg.setHeaderColor("#1e3a8a"); tg && tg.setBackgroundColor && tg.setBackgroundColor(dark ? "#080e1c" : "#f3f6fb"); tg && tg.setBottomBarColor && tg.setBottomBarColor(dark ? "#101a30" : "#ffffff"); } catch (e) { /* старый клиент */ }
+    const light = tg ? tg.colorScheme === "light" : matchMedia("(prefers-color-scheme: light)").matches;
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+    try {
+      tg && tg.setHeaderColor && tg.setHeaderColor(light ? "#2864f0" : "#0f1c40");
+      tg && tg.setBackgroundColor && tg.setBackgroundColor(light ? "#f1f4fb" : "#080e1d");
+      tg && tg.setBottomBarColor && tg.setBottomBarColor(light ? "#ffffff" : "#0a1124");
+    } catch (e) { /* старый клиент */ }
   }
+
+  const setBusy = (on) => { loadbar.classList.toggle("on", on); refreshBtn.classList.toggle("spin", on); };
+  const stampText = (t) => (DEMO ? "демо" : t ? ago(t) : "");
 
   function chrome(id, data, stamp) {
     const [title, sub] = heroFor(id, data);
     $("title").textContent = title;
-    $("subtitle").textContent = sub;
-    const extra = [];
-    if (DEMO) extra.push('<span class="glass">демо-данные</span>');
-    else if (stamp) extra.push(`<span class="glass">${ico("clock")}${ago(stamp)}</span>`);
-    $("heroExtra").innerHTML = extra.join("");
-    $("tabs").innerHTML = TABS.map((t) => `<button class="tab ${t.id === S.tab ? "on" : ""}" data-a="tab" data-tab="${t.id}">${ico(t.icon)}<span>${t.label}</span></button>`).join("");
-    $("back").hidden = !S.sub; $("refresh").hidden = id === "more";
+    $("subtitle").textContent = sub || "\u00a0";
+    $("stamp").textContent = stampText(stamp);
+    const icon = HERO_ICON[id] || "calendar";
+    if (icon !== lastIcon) { $("badge").innerHTML = ico(icon); lastIcon = icon; }
+    tabEls.forEach((el) => el.classList.toggle("on", el.dataset.tab === S.tab));
+    $("back").hidden = !S.sub;
+    refreshBtn.hidden = id === "more";
     try { if (tg && tg.BackButton) S.sub ? tg.BackButton.show() : tg.BackButton.hide(); } catch (e) { /* нет */ }
   }
 
-  function paint(id, data, stamp) {
-    chrome(id, data, stamp);
-    view.innerHTML = data || id === "more" ? RENDER[id](data) : '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
-    if (data || id === "more") { const [t, s] = heroFor(id, data); $("title").textContent = t; $("subtitle").textContent = s; }
+  function afterPaint() {
+    requestAnimationFrame(() => view.querySelectorAll(".progress i[data-w]").forEach((i) => { i.style.width = `${i.dataset.w}%`; }));
   }
 
-  async function load(force) {
+  function show(html, anim) {
+    if (html === lastHtml && !anim) return;
+    view.innerHTML = html; lastHtml = html;
+    view.className = "";
+    if (anim) { const cls = `enter-${anim}`; void view.offsetWidth; view.classList.add(cls); setTimeout(() => view.classList.remove(cls), 260); }
+    afterPaint();
+  }
+
+  // opts.bg — перерисовка от ответа сервера/таймера: ждёт, пока палец отпущен, и не затирает более новый экран (token).
+  function paint(id, data, stamp, opts = {}) {
+    if (opts.token != null && opts.token !== reqId) return;
+    if (opts.bg && pressing) { deferred = () => paint(id, data, stamp, opts); return; }
+    chrome(id, data, stamp);
+    show(data || id === "more" ? RENDER[id](data) : SKELETON, opts.anim);
+    const [t, s] = heroFor(id, data);
+    $("title").textContent = t; $("subtitle").textContent = s || "\u00a0";
+  }
+
+  async function load(opts = {}) {
+    const { force = false, anim = "fade" } = opts;
     const my = ++reqId, id = current(), path = pathFor(id);
-    if (!path) { paint(id, null); return; }
+    if (!path) { paint(id, null, 0, { anim }); setBusy(false); return; }
     const e = cget(path);
-    paint(id, e && e.data, e && e.t);
-    if (e && !force && Date.now() - e.t < ttlOf(id)) { prefetch(); return; }
-    const spin = $("refresh");
-    spin.classList.add("spin");
+    paint(id, e && e.data, e && e.t, { anim });      // мгновенный отклик: сохранённые данные или заглушка
+    if (e && !force && Date.now() - e.t < ttlOf(id)) { setBusy(false); return; }
+    setBusy(true);
     try {
       const data = await api(path, force);
-      cset(path, data);
-      if (my === reqId) paint(id, data, Date.now());
-      prefetch();
+      cset(path, data); lastFetch = Date.now();
+      paint(id, data, lastFetch, { bg: true, token: my });
     } catch (err) {
       if (my !== reqId) return;
-      if (e) toast("Нет связи — показаны сохранённые данные"); else view.innerHTML = errorView(err);
+      if (e) toast("Нет связи — показаны сохранённые данные"); else show(errorView(err));
     } finally {
-      if (my === reqId) spin.classList.remove("spin");
+      if (my === reqId) setBusy(false);
     }
   }
 
-  // Заранее подтягивает остальные вкладки (по одной, редко), чтобы переключение было мгновенным.
-  function prefetch() {
-    if (prefetched || DEMO) return;
-    prefetched = true;
-    const base = { schedule: `schedule?week=0&m=${mondayOf(0)}`, nb: "nb", exams: "exams", grades: "grades" };
-    (async () => {
-      for (const [id, path] of Object.entries(base)) {
-        await sleep(1200);
-        const e = cget(path);
-        if (e && Date.now() - e.t < TTL[id]) continue;
-        try { cset(path, await api(path)); } catch (err) { return; }
-      }
-    })();
-  }
-
+  const repaint = (anim) => { const id = current(), e = cget(pathFor(id)); if (e) paint(id, e.data, e.t, { anim }); };
   const goBack = () => {
     if (S.sub === "resources" && S.res.subject) { S.res.subject = null; } else { S.sub = null; }
-    S.open.clear(); load();
+    S.open.clear(); load({ anim: "prev" });
   };
 
   const actions = {
     tab: (el) => { const t = el.dataset.tab; if (S.tab !== t || S.sub) { S.tab = t; S.sub = null; S.open.clear(); load(); } },
-    open: (el) => { S.sub = el.dataset.sub; S.open.clear(); if (S.sub === "resources") S.res.subject = null; load(); },
+    open: (el) => { S.sub = el.dataset.sub; S.open.clear(); if (S.sub === "resources") S.res.subject = null; load({ anim: "next" }); },
     back: goBack,
-    refresh: () => { toast("Обновляю…"); load(true); },
-    retry: () => load(true),
-    week: (el) => { S.week += Number(el.dataset.dir); S.day = null; load(); },
-    day: (el) => { S.day = el.dataset.day; const id = current(), e = cget(pathFor(id)); if (e) paint(id, e.data, e.t); },
+    refresh: () => {
+      if (Date.now() - lastFetch < 20000) { toast("Данные уже свежие"); return; }
+      toast("Обновляю…"); load({ force: true, anim: null });
+    },
+    retry: () => load({ force: true }),
+    week: (el) => { const dir = Number(el.dataset.dir); S.week += dir; S.day = null; load({ anim: dir > 0 ? "next" : "prev" }); },
+    day: (el) => { S.day = el.dataset.day; repaint("fade"); },
     sem: (el) => {
       const id = current(), e = cget(pathFor(id)); if (!e) return;
-      const sems = e.data.semesters, cur = S.sem[id] || sems.current, i = sems.codes.indexOf(cur) + Number(el.dataset.dir);
+      const sems = e.data.semesters, dir = Number(el.dataset.dir), cur = S.sem[id] || sems.current, i = sems.codes.indexOf(cur) + dir;
       if (i < 0 || i >= sems.codes.length) return;
-      S.sem[id] = sems.codes[i]; if (id === "exams") S.examTab = null; S.open.clear(); load();
+      S.sem[id] = sems.codes[i]; if (id === "exams") S.examTab = null; S.open.clear(); load({ anim: dir > 0 ? "next" : "prev" });
     },
-    examtab: (el) => { S.examTab = el.dataset.k; const e = cget(pathFor("exams")); if (e) paint("exams", e.data, e.t); },
-    tasktab: (el) => { S.taskTab = el.dataset.k; const e = cget(pathFor("tasks")); if (e) paint("tasks", e.data, e.t); },
-    subject: (el) => { S.res.subject = el.dataset.id; S.res.name = el.dataset.name; S.open.clear(); load(); },
+    examtab: (el) => { S.examTab = el.dataset.k; repaint("fade"); },
+    tasktab: (el) => { S.taskTab = el.dataset.k; repaint("fade"); },
+    reskind: (el) => { S.resKind = el.dataset.k; repaint("fade"); },
+    subject: (el) => { S.res.subject = el.dataset.id; S.res.name = el.dataset.name; S.resKind = "all"; S.open.clear(); load({ anim: "next" }); },
+    lesson: (el) => {
+      const key = el.dataset.key, card = el.closest(".lesson");
+      S.open.has(key) ? S.open.delete(key) : S.open.add(key);
+      card.classList.toggle("open", S.open.has(key)); el.setAttribute("aria-expanded", S.open.has(key));
+    },
     toggle: (el, ev) => {
       if (ev.target.closest("[data-a='send'], [data-a='link']")) return;
       const key = el.dataset.key; S.open.has(key) ? S.open.delete(key) : S.open.add(key);
@@ -515,12 +562,25 @@ if (typeof document !== "undefined") {
     const el = ev.target.closest("[data-a]");
     if (!el || el.disabled) return;
     const a = el.dataset.a;
-    if (!["toggle", "refresh", "send", "copy", "setting"].includes(a)) haptic();
+    if (!["toggle", "refresh", "send", "copy", "setting", "lesson"].includes(a)) haptic();
     if (actions[a]) actions[a](el, ev);
   });
+  document.addEventListener("keydown", (ev) => { if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches && ev.target.matches("[role='button']")) { ev.preventDefault(); ev.target.click(); } });
 
-  $("refresh").innerHTML = ico("refresh");
-  $("back").innerHTML = ico("left");
+  // Пока палец на экране, фоновые перерисовки откладываются — иначе кнопка исчезает прямо под пальцем и тап пропадает.
+  const release = () => { pressing = false; if (deferred) { const f = deferred; deferred = null; setTimeout(f, 60); } };
+  document.addEventListener("pointerdown", () => { pressing = true; }, { passive: true, capture: true });
+  ["pointerup", "pointercancel"].forEach((t) => document.addEventListener(t, release, { passive: true, capture: true }));
+
+  // Раз в полминуты: «идёт сейчас», прогресс пары и подпись «N мин назад» живут по часам без запросов к серверу.
+  setInterval(() => {
+    if (document.hidden) return;
+    const id = current(), e = cget(pathFor(id));
+    if (!e) return;
+    $("stamp").textContent = stampText(e.t);
+    if (id === "schedule" && S.week === 0) paint(id, e.data, e.t, { bg: true, token: reqId });
+  }, 30000);
+
   if (tg) {
     tg.ready(); tg.expand();
     tg.onEvent && tg.onEvent("themeChanged", setTheme);
@@ -528,7 +588,7 @@ if (typeof document !== "undefined") {
   }
   setTheme();
   load();
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load({ anim: null }); });
 }
 
 // ---------------------------------------------------------------- демо-данные (просмотр без бота: ?demo)
@@ -589,8 +649,8 @@ function demoApi(path, method, body) {
     return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), subjects: [{ id: "149", name: "Mikroiqtisodiyot 1", credit: 4, resources: 36 }, { id: "151", name: "Statistika", credit: 3, resources: 12 }, { id: "153", name: "Philosophy", credit: 2, resources: 8 }] });
   }
   if (kind === "contract") return wait({ gpa: 4.4, speciality: "Iqtisodiyot", course: "2-kurs", form: "Kunduzgi", year: "2026-2027", total: 12000000, paid: 7500000, remaining: 4500000, paid_pct: 62.5, fields_consistent: true });
-  if (kind === "settings") return wait({ auth_failed: false, last_ok_at: new Date().toISOString(), toggles: [["morning_on", "Утренняя сводка пар"], ["prep_on", "Подготовка к семинарам"], ["changes_on", "Изменения в расписании"], ["nb_on", "Новые НБ"], ["tasks_on", "Новые задания"], ["grades_on", "Новые баллы"], ["deadlines_on", "Дедлайны заданий"], ["exams_on", "Экзамены"]].map(([key, label], i) => ({ key, label, on: i !== 1 })) });
+  if (kind === "settings") return wait({ auth_failed: false, last_ok_at: new Date().toISOString(), toggles: [["morning_on", "Утренняя сводка пар"], ["prep_on", "Подготовка к семинарам"], ["changes_on", "Изменения в расписании"], ["nb_on", "Новые НБ"], ["tasks_on", "Новые задания"], ["grades_on", "Новые баллы"], ["deadlines_on", "Дедлайны заданий"], ["exams_on", "Экзамены"]].concat([["lesson_alert_on", "За 10 минут до пары"]]).map(([key, label], i) => ({ key, label, on: i !== 1 })) });
   return wait({});
 }
 
-if (typeof module !== "undefined") module.exports = { renderSchedule, renderNb, renderExams, renderGrades, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, forecast, esc, pathFor, minutesLeft, leftLabel, heroFor };
+if (typeof module !== "undefined") module.exports = { nowTk, lessonState, hhmm, lessonCard, mondayOf, renderSchedule, renderNb, renderExams, renderGrades, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, forecast, esc, pathFor, minutesLeft, leftLabel, heroFor };

@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark light">
   <title>HEMIS · Джарвис</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
-    /* Ускорение старта: тема до первой отрисовки и предварительное соединение с ботом (его адрес приходит в ?api=). */
+    /* Старт без вспышки: тема до первой отрисовки + предварительное соединение с ботом (адрес приходит в ?api=). */
     (function () {
       var tg = window.Telegram && window.Telegram.WebApp;
-      var dark = tg ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      var light = tg ? tg.colorScheme === "light" : matchMedia("(prefers-color-scheme: light)").matches;
+      document.documentElement.dataset.theme = light ? "light" : "dark";
       var api = new URLSearchParams(location.search).get("api");
       if (api) { var l = document.createElement("link"); l.rel = "preconnect"; l.href = api; document.head.appendChild(l); }
     })();
@@ -21,23 +21,24 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header class="hero" id="hero">
-    <div class="hero-row">
-      <button class="icon-btn" id="back" data-a="back" aria-label="Назад" hidden></button>
-      <div class="hero-text">
+  <div class="loadbar" id="loadbar"></div>
+  <header class="top" id="hero">
+    <div class="top-row">
+      <button class="back" id="back" data-a="back" aria-label="Назад" hidden></button>
+      <div class="badge" id="badge"></div>
+      <div class="top-text">
         <h1 id="title">Расписание</h1>
-        <p id="subtitle"></p>
+        <p id="subtitle">&nbsp;</p>
       </div>
-      <button class="icon-btn" id="refresh" data-a="refresh" aria-label="Обновить"></button>
+      <button class="stamp" id="refresh" data-a="refresh" aria-label="Обновить"><span id="stampIco"></span><span id="stamp"></span></button>
     </div>
-    <div class="hero-extra" id="heroExtra"></div>
   </header>
 
   <main id="view" aria-live="polite">
     <div class="skel"></div><div class="skel"></div><div class="skel"></div>
   </main>
 
-  <nav class="tabs" id="tabs" aria-label="Разделы"></nav>
+  <nav class="tabs" id="tabs" aria-label="Разделы"><div class="tabs-in" id="tabsIn"></div></nav>
   <div class="toast" id="toast" role="status"></div>
 </body>
 </html>
