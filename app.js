@@ -1,8 +1,8 @@
-/* Джарвис · HEMIS & Финансы — Telegram Mini App 2.6.
-   - Вкладка «Финансы» справа под защитой BiometricManager (TouchID/FaceID) и PIN-кода
-   - Чистое меню «Расписание» (без кнопок экспорта .ics и экзаменов)
-   - Полная поддержка всех 8 семестров (1–8 семестр, 1–4 курс) с быстрым переключением
-   - Раздел «Уведомления» в «Ещё» разделён на две ветви («Бот» и «HEMIS») с настройкой времени и частоты */
+/* Джарвис · HEMIS & Финансы — Telegram Mini App 2.7.
+   - Безрамочный полноэкранный режим (Bot API 8.0 requestFullscreen + disableVerticalSwipes)
+   - Вкладка «Финансы» справа без жёлтой точки, вход через BiometricManager + PIN («Доступ к разделу финансы / Подтвердите вход», иконка 🔑 без текста PIN, без дублирующей кнопки отпечатка)
+   - Быстрое и безотказное переключение всех 8 семестров во вкладке НБ и вывод «Нет пропусков» при отсутствии данных
+   - Две ветви уведомлений («Бот» и «HEMIS»): опрос HEMIS каждые 20 мин в окне 05:40–23:00 (Ташкент) и тихий час 23:30–05:50 */
 "use strict";
 
 // ---------------------------------------------------------------- утилиты
@@ -80,7 +80,7 @@ const ICON = {
 const HERO_ICON = { schedule: "calendar", nb: "nb", exams: "exam", grades: "grades", money: "money", more: "more", tasks: "tasks", resources: "book", subjects: "layers", contract: "wallet", settings: "bell" };
 const ico = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name] || ICON.calendar}</svg>`;
 
-// ---------------------------------------------------------------- состояние и кэш (Вкладка Финансы — крайняя справа!)
+// ---------------------------------------------------------------- состояние и кэш (Вкладка Финансы — крайняя справа)
 const TABS = [
   { id: "schedule", label: "Расписание", icon: "calendar" },
   { id: "nb", label: "НБ", icon: "nb" },
@@ -88,6 +88,8 @@ const TABS = [
   { id: "more", label: "Ещё", icon: "more" },
   { id: "money", label: "Финансы", icon: "money" },
 ];
+
+const SEM_SCREENS = new Set(["nb", "exams", "grades", "subjects", "tasks", "resources"]);
 
 const S = {
   tab: "schedule",
@@ -139,18 +141,18 @@ function setSavedPin(pin) {
 }
 
 const DEFAULT_NOTIF_PREFS = {
-  // Ветвь «Бот Джарвис» (время и частота)
+  // Ветвь «Бот Джарвис» (время и частота, тихий час 23:30–05:50)
   bot_morning_time: "07:30",
   bot_evening_time: "21:00",
-  bot_quiet_hours: "23:00-07:00",
-  bot_digest_freq: "2x_day",   // realtime | 3h | 2x_day | daily
-  bot_fin_freq: "daily",       // every_tx | daily | weekly
-  // Ветвь «HEMIS» (время и частота)
+  bot_quiet_hours: "23:30-05:50",
+  bot_digest_freq: "2x_day",        // realtime | 3h | 2x_day | daily
+  bot_fin_freq: "daily",            // every_tx | daily | weekly
+  // Ветвь «HEMIS» (время и частота, опрос каждые 20 мин в 05:40–23:00 по Ташкенту)
   hemis_morning_time: "07:30",
   hemis_prep_time: "19:00",
-  hemis_before_min: "10",      // 5 | 10 | 15 | 30
-  hemis_poll_freq: "30m",      // 15m | 30m | 1h | 3h
-  hemis_deadline_freq: "standard", // intensive | standard | minimal
+  hemis_before_min: "10",           // 5 | 10 | 15 | 30
+  hemis_poll_freq: "20m_540_2300",  // 20m_540_2300 | 15m | 30m | 1h
+  hemis_deadline_freq: "standard",  // intensive | standard | minimal
 };
 
 function getNotifPrefs(serverPrefs) {
@@ -159,7 +161,10 @@ function getNotifPrefs(serverPrefs) {
     const raw = typeof localStorage !== "undefined" && localStorage.getItem(LS + "notif_prefs");
     if (raw) saved = JSON.parse(raw) || {};
   } catch (e) { /* ignore */ }
-  return { ...DEFAULT_NOTIF_PREFS, ...(serverPrefs || {}), ...saved };
+  const merged = { ...DEFAULT_NOTIF_PREFS, ...(serverPrefs || {}), ...saved };
+  if (merged.bot_quiet_hours === "23:00-07:00") merged.bot_quiet_hours = "23:30-05:50";
+  if (merged.hemis_poll_freq === "30m") merged.hemis_poll_freq = "20m_540_2300";
+  return merged;
 }
 function saveNotifPref(key, val) {
   const next = { ...getNotifPrefs(), [key]: String(val) };
@@ -316,18 +321,26 @@ function renderSchedule(d) {
     + lessons.map((l) => lessonCard(l, lessonState(l, isToday, now.min))).join("");
 }
 
-// ---------------------------------------------------------------- НБ
+// ---------------------------------------------------------------- НБ (быстрая прокрутка 8 семестров + чёткий вывод «Нет пропусков»)
 const NB_STATUS = { ok: "В норме", warn: "Осторожно", fail: "Лимит превышен", unknown: "Лимит неизвестен" };
 const NB_TONE = { ok: "tone-ok", warn: "tone-warn", fail: "tone-bad", unknown: "" };
 
 function renderNb(d) {
-  const r = d.report;
-  S.sem.nb = S.sem.nb || r.semester;
-  let html = semPager(d.semesters, r.semester);
-  html += `<div class="tiles"><div class="tile"><b>${num(r.total_hours)} ч</b><span>Пропущено</span></div><div class="tile"><b>${num(r.excused_total)} ч</b><span>Уважительные</span></div><div class="tile"><b>${num(r.limit_pct)}%</b><span>Лимит часов</span></div></div>`;
-  if (!r.rows.length) return html + empty("🎉", "Пропусков нет", "В выбранном семестре пропусков (НБ) не зафиксировано.");
-  return html + r.rows.map((row, idx) => {
-    const key = `nb${idx}`, open = S.open.has(key), used = row.limit_hours ? Math.min(row.hours / row.limit_hours, 1) : 0;
+  const r = (d && d.report) || {};
+  const activeSem = String(S.sem.nb || r.semester || (d && d.semesters && d.semesters.current) || "13");
+  S.sem.nb = activeSem;
+  let html = semPager(d && d.semesters, activeSem);
+  const rows = Array.isArray(r.rows) ? r.rows : [];
+  const rowsWithNb = rows.filter((row) => Number(row.hours) > 0 || Number(row.excused_h) > 0 || (row.records && row.records.length > 0));
+  const totalH = Number(r.total_hours || 0);
+  const excH = Number(r.excused_total || 0);
+  html += `<div class="tiles"><div class="tile"><b>${num(totalH)} ч</b><span>Пропущено</span></div><div class="tile"><b>${num(excH)} ч</b><span>Уважительные</span></div><div class="tile"><b>${num(r.limit_pct ?? 25)}%</b><span>Лимит часов</span></div></div>`;
+  if (!rowsWithNb.length && totalH === 0 && excH === 0) {
+    return html + empty("🎉", "Нет пропусков", "В этом семестре пропусков (НБ) нет.");
+  }
+  const displayRows = rowsWithNb.length ? rowsWithNb : rows;
+  return html + displayRows.map((row, idx) => {
+    const key = `nb${activeSem}_${idx}`, open = S.open.has(key), used = row.limit_hours ? Math.min(row.hours / row.limit_hours, 1) : 0;
     const status = NB_STATUS[row.status] ? row.status : "unknown", approx = row.hours_src === "schedule" ? "≈" : "";
     const hours = row.limit_hours ? `<b>${num(row.hours)}</b> / ${approx}${num(row.limit_hours)} ч` : `<b>${num(row.hours)}</b> ч`;
     const left = !row.limit_hours ? "лимит неизвестен" : row.status === "fail" ? "лимит превышен" : `можно ещё <b>${pairsWord(row.left_pairs)}</b>`;
@@ -341,18 +354,19 @@ function renderNb(d) {
 const EXAM_TABS = [["1", "1-е", "промеж."], ["2", "2-е", "промеж."], ["c", "Текущий", "контроль"], ["s", "Сессия", "итоговый"]];
 
 function renderExams(d) {
-  S.sem.exams = S.sem.exams || d.semester;
+  const activeSem = String(S.sem.exams || d.semester || "13");
+  S.sem.exams = activeSem;
   const today = nowTk().iso, by = { 1: [], 2: [], c: [], s: [] };
-  d.exams.forEach((e) => by[e.group].push(e));
+  (d.exams || []).forEach((e) => { if (by[e.group]) by[e.group].push(e); });
   if (!S.examTab || !by[S.examTab]) {
     const up = Object.entries(by).map(([k, v]) => [k, v.filter((e) => e.date >= today)]).filter(([, v]) => v.length).map(([k, v]) => [k, v[0].date]);
     S.examTab = up.length ? up.sort((a, b) => a[1].localeCompare(b[1]))[0][0] : ["s", "c", "2", "1"].find((k) => by[k].length) || "s";
   }
   const tabs = EXAM_TABS.map(([k, t, sub]) => [k, t, by[k].length ? `${by[k].length} экз.` : sub]);
-  let html = semPager(d.semesters, d.semester)
+  let html = semPager(d.semesters, activeSem)
     + seg(tabs, S.examTab, "examtab");
   const items = by[S.examTab];
-  if (!d.exams.length) return html + empty("🗓", "Расписание экзаменов пока не опубликовано", "Как только оно появится в HEMIS для выбранного семестра, здесь появятся даты.");
+  if (!(d.exams && d.exams.length)) return html + empty("🗓", "Расписание экзаменов пока не опубликовано", "Как только оно появится в HEMIS для выбранного семестра, здесь появятся даты.");
   if (!items.length) return html + empty("✨", "В этой вкладке экзаменов нет", "");
   const card = (e) => {
     const day = parseISO(e.date), left = Math.round((day - parseISO(today)) / 864e5);
@@ -409,9 +423,10 @@ function buildTargetsFromPerf(p) {
 }
 
 function renderGrades(d) {
-  const p = d.perf;
-  S.sem.grades = S.sem.grades || p.semester;
-  let html = semPager(d.semesters, p.semester);
+  const p = d.perf || { subjects: [], credits: 0 };
+  const activeSem = String(S.sem.grades || p.semester || "13");
+  S.sem.grades = activeSem;
+  let html = semPager(d.semesters, activeSem);
   html += `<div class="tiles four"><div class="tile"><b>${p.gpa_calc ?? "—"}</b><span>GPA</span></div><div class="tile"><b>${p.avg_pct != null ? num(p.avg_pct) + "%" : "—"}</b><span>Средний</span></div><div class="tile"><b>${p.credits}</b><span>Кредитов</span></div><div class="tile"><b>${p.subjects.length}</b><span>Предметов</span></div></div>`;
   html += seg([["overview", "📊 Баллы и GPA", "текущие"], ["targets", "🎯 Цели на сессию", "калькулятор"]], S.gradeMode, "grademode");
 
@@ -461,25 +476,20 @@ function renderGrades(d) {
 }
 
 function renderSubjects(d) {
-  const p = d.perf;
-  S.sem.subjects = S.sem.subjects || p.semester;
-  const html = semPager(d.semesters, p.semester);
+  const p = d.perf || { subjects: [], credits: 0 };
+  const activeSem = String(S.sem.subjects || p.semester || "13");
+  S.sem.subjects = activeSem;
+  const html = semPager(d.semesters, activeSem);
   if (!p.subjects.length) return html + empty("📚", "Предметов пока нет", "");
   const total = p.subjects.reduce((a, s) => a + (s.load || 0), 0);
   return html + `<div class="tiles"><div class="tile"><b>${p.subjects.length}</b><span>Предметов</span></div><div class="tile"><b>${p.credits}</b><span>Кредитов</span></div><div class="tile"><b>${total || "—"}</b><span>Часов</span></div></div>`
     + p.subjects.map((s) => `<div class="card"><div class="name">${esc(s.name)}</div><div class="chips" style="margin-top:8px"><span class="chip tone-brand">${s.credit} кр.</span>${s.load ? `<span class="chip">${s.load} ч</span>` : ""}${s.kind ? `<span class="chip">${esc(s.kind)}</span>` : ""}</div></div>`).join("");
 }
 
-// ---------------------------------------------------------------- Экран Биометрии (Telegram BiometricManager) + PIN-код и Финансы
+// ---------------------------------------------------------------- Экран Биометрии + PIN-код (лаконичный, без дублирующей кнопки отпечатка)
 function renderVaultGate() {
-  const bm = tg && tg.BiometricManager;
-  const bioType = bm && bm.isInited && bm.isBiometricAvailable
-    ? (bm.biometricType === "face" ? "Face ID" : "Touch ID / Отпечаток")
-    : "Биометрия (Touch ID / Face ID)";
-  const title = S.pinSetupMode ? "Новый 4-значный PIN-код" : "Доступ к разделу Финансы";
-  const sub = S.pinSetupMode
-    ? "Введите 4 цифры, которые будут использоваться для входа"
-    : `Подтвердите вход через ${bioType} или введите PIN-код (по умолчанию: ${getSavedPin()})`;
+  const title = S.pinSetupMode ? "Новый 4-значный PIN-код" : "Доступ к разделу финансы";
+  const sub = S.pinSetupMode ? "Введите 4 цифры" : "Подтвердите вход";
 
   const dots = [0, 1, 2, 3].map((i) => {
     const filled = i < S.pinBuffer.length ? "filled" : "";
@@ -493,7 +503,7 @@ function renderVaultGate() {
       ${ico("fingerprint")}
     </button>
     <b style="font-size:18px">${esc(title)}</b>
-    <p class="muted small" style="margin:4px 0 0;max-width:320px">${esc(sub)}</p>
+    <p class="muted small" style="margin:4px 0 0">${esc(sub)}</p>
     <div class="pin-dots ${S.pinError ? "shake" : ""}">${dots}</div>
     <div class="numpad">
       ${keys.map((k) => `<button class="num-key" data-a="pinkey" data-digit="${k}">${k}</button>`).join("")}
@@ -501,10 +511,7 @@ function renderVaultGate() {
       <button class="num-key" data-a="pinkey" data-digit="0">0</button>
       <button class="num-key" data-a="pinback" aria-label="Стереть">${ico("backspace")}</button>
     </div>
-    <div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-      <button class="btn tonal sm" data-a="bioauth">${ico("fingerprint")}Войти по отпечатку</button>
-      ${S.pinSetupMode ? `<button class="btn ghost sm" data-a="pincancel">Отмена</button>` : ""}
-    </div>
+    ${S.pinSetupMode ? `<div style="margin-top:16px"><button class="btn ghost sm" data-a="pincancel">Отмена</button></div>` : ""}
   </div>`;
 }
 
@@ -545,7 +552,7 @@ function renderMoney(d) {
         <div class="row" style="gap:6px">
           <span class="muted small">Общий капитал</span>
           <button class="chip" data-a="hidebal" title="Скрыть или показать суммы">${ico(S.hideBalances ? "eyeOff" : "eye")}</button>
-          <button class="chip" data-a="pinsetup" title="Сменить PIN-код">🔑 PIN</button>
+          <button class="chip" data-a="pinsetup" title="Сменить PIN-код" aria-label="Сменить PIN-код">🔑</button>
           <button class="chip tone-warn" data-a="lockmoney" title="Заблокировать Финансы">${ico("lock")}</button>
         </div>
         <div style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin-top:4px">${fmtMoney(d.balances.total)} <span class="small muted">сум</span></div>
@@ -708,11 +715,13 @@ function leftLabel(m) {
 const taskGroup = (t) => (t.graded ? "graded" : t.overdue ? "overdue" : "active");
 
 function renderTasks(d) {
-  S.sem.tasks = S.sem.tasks || d.semester;
-  const groups = { active: [], overdue: [], graded: [], all: d.tasks };
-  d.tasks.forEach((t) => groups[taskGroup(t)].push(t));
+  const activeSem = String(S.sem.tasks || d.semester || "13");
+  S.sem.tasks = activeSem;
+  const allTasks = d.tasks || [];
+  const groups = { active: [], overdue: [], graded: [], all: allTasks };
+  allTasks.forEach((t) => groups[taskGroup(t)].push(t));
   const tabs = [["active", "Активные"], ["overdue", "Просрочено"], ["graded", "Оценено"], ["all", "Все"]].map(([k, t]) => [k, t, groups[k].length]);
-  let html = semPager(d.semesters, d.semester) + seg(tabs, S.taskTab, "tasktab");
+  let html = semPager(d.semesters, activeSem) + seg(tabs, S.taskTab, "tasktab");
   const list = groups[S.taskTab];
   if (!list.length) return html + empty(S.taskTab === "active" ? "🎉" : "✨", S.taskTab === "active" ? "Активных заданий нет" : "Здесь пусто", "");
   return html + list.map((t) => {
@@ -734,15 +743,16 @@ function renderTasks(d) {
 
 // ---------- ресурсы
 function renderResources(d) {
-  S.sem.resources = S.sem.resources || d.semester;
+  const activeSem = String(S.sem.resources || d.semester || "13");
+  S.sem.resources = activeSem;
   if (!S.res.subject) {
-    const html = semPager(d.semesters, d.semester);
-    const list = d.subjects.filter((x) => x.resources);
+    const html = semPager(d.semesters, activeSem);
+    const list = (d.subjects || []).filter((x) => x.resources);
     if (!list.length) return html + empty("📖", "Материалов пока нет", "Преподаватели ещё не загрузили ресурсы в этом семестре.");
     return html + list.map((x) => `<button class="card tap row" style="width:100%" data-a="subject" data-id="${esc(x.id)}" data-name="${esc(x.name)}"><span class="menu-ico tone-violet">${ico("book")}</span>
       <span class="grow"><span class="name" style="display:block">${esc(x.name)}</span><span class="muted small">${x.resources} ${plural(x.resources, "материал", "материала", "материалов")}</span></span><span class="muted">${ico("right")}</span></button>`).join("");
   }
-  if (!d.resources.length) return empty("✨", "Материалов нет", "");
+  if (!d.resources || !d.resources.length) return empty("✨", "Материалов нет", "");
   const kinds = [...new Set(d.resources.map((r) => r.kind).filter(Boolean))];
   const rank = (k) => (/лек/i.test(k) ? 0 : /практ|семин/i.test(k) ? 1 : 2);
   kinds.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, "ru"));
@@ -756,7 +766,7 @@ function renderResources(d) {
     return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="item-top"><div class="name">${esc(r.title)}</div>${r.files_count ? `<span class="pill">${ico("file")}${r.files_count}</span>` : ""}</div>
       <div class="chips" style="margin-top:7px">${r.kind ? `<span class="chip ${r.kind.toLowerCase().includes("лек") ? "tag-lec" : "tag-prac"}">${esc(r.kind)}</span>` : ""}${(r.languages || []).map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>
       <div class="detail" ${open ? "" : "hidden"}>${r.teacher ? `<div class="meta-inline"><span>${ico("user")}${esc(r.teacher)}</span></div>` : ""}${r.comment && r.comment.length > 3 ? `<p>${esc(r.comment)}</p>` : ""}${items}
-        ${r.files_count ? `<button class="btn tonal block" data-a="send" data-type="resource" data-id="${esc(r.id)}" data-subject="${esc(S.res.subject)}" data-semester="${esc(d.semester)}">${ico("send")}Прислать файлы и конспект в чат</button>` : ""}</div></div>`;
+        ${r.files_count ? `<button class="btn tonal block" data-a="send" data-type="resource" data-id="${esc(r.id)}" data-subject="${esc(S.res.subject)}" data-semester="${esc(activeSem)}">${ico("send")}Прислать файлы и конспект в чат</button>` : ""}</div></div>`;
   }).join("");
 }
 
@@ -852,9 +862,9 @@ function renderSettings(d) {
           ["daily", "Вечерний отчёт"],
           ["weekly", "Раз в неделю"],
         ])}
-        ${renderFreqRow("Тихие часы (Не беспокоить)", "Интервал без звуковых уведомлений ночью", "bot_quiet_hours", prefs.bot_quiet_hours, [
-          ["23:00-07:00", "23:00 – 07:00"],
-          ["00:00-08:00", "00:00 – 08:00"],
+        ${renderFreqRow("Тихий час (Не беспокоить)", "Интервал без звуковых уведомлений ночью по Ташкенту", "bot_quiet_hours", prefs.bot_quiet_hours, [
+          ["23:30-05:50", "23:30 – 05:50"],
+          ["00:00-06:00", "00:00 – 06:00"],
           ["off", "Без ограничений"],
         ])}
       </div>`;
@@ -876,6 +886,12 @@ function renderSettings(d) {
 
   const hemisTimeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «HEMIS»</div>
     <div class="card notif-block">
+      ${renderFreqRow("Опрос HEMIS по расписанию (Ташкент)", "Стучимся в HEMIS каждые 20 минут только в промежутке 05:40 – 23:00", "hemis_poll_freq", prefs.hemis_poll_freq, [
+        ["20m_540_2300", "Каждые 20 мин (05:40 – 23:00)"],
+        ["15m", "Каждые 15 мин"],
+        ["30m", "Каждые 30 мин"],
+        ["1h", "Каждый час"],
+      ])}
       ${renderTimeRow("Время утренней сводки пар", "Во сколько присылать расписание занятий на день", "hemis_morning_time", prefs.hemis_morning_time, ["06:45", "07:15", "07:30", "08:00"])}
       ${renderTimeRow("Время напоминания о семинарах", "Вечерняя проверка практик и семинаров на завтра", "hemis_prep_time", prefs.hemis_prep_time, ["18:00", "19:00", "20:00", "21:00"])}
       ${renderFreqRow("Уведомление перед началом пары", "За сколько минут до звонка напоминать об аудитории", "hemis_before_min", prefs.hemis_before_min, [
@@ -883,12 +899,6 @@ function renderSettings(d) {
         ["10", "За 10 мин"],
         ["15", "За 15 мин"],
         ["30", "За 30 мин"],
-      ])}
-      ${renderFreqRow("Частота проверки обновлений HEMIS", "Интервал фонового опроса новых оценок, НБ и заданий", "hemis_poll_freq", prefs.hemis_poll_freq, [
-        ["15m", "Каждые 15 мин"],
-        ["30m", "Каждые 30 мин"],
-        ["1h", "Каждый час"],
-        ["3h", "Каждые 3 ч"],
       ])}
       ${renderFreqRow("Частота напоминаний о дедлайнах", "График предупреждений о сроках сдачи и экзаменах", "hemis_deadline_freq", prefs.hemis_deadline_freq, [
         ["intensive", "За 7, 3, 1 дн. и 3 ч"],
@@ -912,17 +922,35 @@ function renderSettings(d) {
 function heroFor(id, d) {
   switch (id) {
     case "schedule": return ["Расписание", d ? `${dm(d.monday)} – ${dm(d.sunday)}` : ""];
-    case "nb": return ["Пропуски (НБ)", d ? `${semNo(d.report.semester)}-й семестр · лимит ${num(d.report.limit_pct)}%` : ""];
-    case "exams": return ["Экзамены", d ? `${semNo(d.semester)}-й семестр · ${d.exams.length} ${plural(d.exams.length, "экзамен", "экзамена", "экзаменов")}` : ""];
-    case "grades": return [S.gradeMode === "targets" ? "Цели на сессию" : "Оценки и GPA", d ? `${semNo(d.perf.semester)}-й семестр${d.perf.period ? " · " + d.perf.period : ""}` : ""];
+    case "nb": {
+      const sCode = S.sem.nb || (d && d.report && d.report.semester) || "13";
+      return ["Пропуски (НБ)", `${semNo(sCode)}-й семестр · лимит ${d && d.report ? num(d.report.limit_pct) : 25}%`];
+    }
+    case "exams": {
+      const sCode = S.sem.exams || (d && d.semester) || "13";
+      return ["Экзамены", d ? `${semNo(sCode)}-й семестр · ${d.exams.length} ${plural(d.exams.length, "экзамен", "экзамена", "экзаменов")}` : `${semNo(sCode)}-й семестр`];
+    }
+    case "grades": {
+      const sCode = S.sem.grades || (d && d.perf && d.perf.semester) || "13";
+      return [S.gradeMode === "targets" ? "Цели на сессию" : "Оценки и GPA", `${semNo(sCode)}-й семестр${d && d.perf && d.perf.period ? " · " + d.perf.period : ""}`];
+    }
     case "money":
-      if (!S.moneyUnlocked) return ["Финансы · Защищено", "Вход по отпечатку пальца или PIN-коду"];
+      if (!S.moneyUnlocked) return ["Финансы", "Подтвердите вход"];
       return ["Финансы", d && d.summary ? `Расходы ${d.summary.title || "за период"}: ${fmtMoney(d.summary.expense)} сум` : "Счета, бюджет и Burn-Rate"];
-    case "subjects": return ["Предметы", d ? `${semNo(d.perf.semester)}-й семестр (из 8)` : ""];
-    case "tasks": return ["Задания", d ? `${semNo(d.semester)}-й семестр · ${d.count} ${plural(d.count, "задание", "задания", "заданий")}` : ""];
-    case "resources": return S.res.subject ? [S.res.name || "Ресурсы", "Материалы предмета"] : ["Ресурсы", d ? `${semNo(d.semester)}-й семестр` : ""];
+    case "subjects": {
+      const sCode = S.sem.subjects || (d && d.perf && d.perf.semester) || "13";
+      return ["Предметы", `${semNo(sCode)}-й семестр (из 8)`];
+    }
+    case "tasks": {
+      const sCode = S.sem.tasks || (d && d.semester) || "13";
+      return ["Задания", d ? `${semNo(sCode)}-й семестр · ${d.count} ${plural(d.count, "задание", "задания", "заданий")}` : `${semNo(sCode)}-й семестр`];
+    }
+    case "resources": {
+      const sCode = S.sem.resources || (d && d.semester) || "13";
+      return S.res.subject ? [S.res.name || "Ресурсы", "Материалы предмета"] : ["Ресурсы", `${semNo(sCode)}-й семестр`];
+    }
     case "contract": return ["Контракт", "Оплата и расчёт по месяцам"];
-    case "settings": return ["Уведомления", S.notifBranch === "bot" ? "Ветвь «Бот Джарвис» · время и частота" : "Ветвь «HEMIS» · время и частота"];
+    case "settings": return ["Уведомления", S.notifBranch === "bot" ? "Ветвь «Бот Джарвис» · время и частота" : "Ветвь «HEMIS» · 05:40–23:00 каждые 20 мин"];
     default: return ["Ещё", "Разделы HEMIS и инструменты"];
   }
 }
@@ -960,10 +988,9 @@ if (typeof document !== "undefined") {
   let toastTimer = 0, lastHtml = "", lastIcon = "", pressing = false, deferred = null, lastFetch = 0;
 
   function renderTabsBar() {
-    $("tabsIn").innerHTML = TABS.map((t) => {
-      const lockDot = t.id === "money" && !S.moneyUnlocked ? '<i class="tab-lock-dot" title="Защищено"></i>' : "";
-      return `<button class="tab ${S.tab === t.id ? "on" : ""}" data-a="tab" data-tab="${t.id}">${ico(t.icon)}<span>${t.label}</span>${lockDot}</button>`;
-    }).join("");
+    $("tabsIn").innerHTML = TABS.map((t) => (
+      `<button class="tab ${S.tab === t.id ? "on" : ""}" data-a="tab" data-tab="${t.id}">${ico(t.icon)}<span>${t.label}</span></button>`
+    )).join("");
   }
   renderTabsBar();
 
@@ -993,7 +1020,7 @@ if (typeof document !== "undefined") {
       const runAuth = () => {
         S.bioScanning = true;
         repaint(null);
-        bm.authenticate({ reason: "Подтвердите доступ к разделу Финансы" }, (ok) => {
+        bm.authenticate({ reason: "Подтвердите вход в Финансы" }, (ok) => {
           S.bioScanning = false;
           if (ok) {
             S.moneyUnlocked = true;
@@ -1001,7 +1028,7 @@ if (typeof document !== "undefined") {
             S.pinError = false;
             renderTabsBar();
             haptic("success");
-            toast("Биометрия подтверждена 🔓");
+            toast("Вход выполнен 🔓");
             load({ anim: "fade" });
           } else {
             haptic("error");
@@ -1011,7 +1038,7 @@ if (typeof document !== "undefined") {
         });
       };
       if (!bm.isAccessGranted) {
-        bm.requestAccess({ reason: "Вход в раздел Финансы по отпечатку пальца или Face ID" }, (granted) => {
+        bm.requestAccess({ reason: "Подтвердите вход в Финансы" }, (granted) => {
           if (granted) runAuth();
           else toast("Доступ к биометрии отклонён — используйте PIN-код");
         });
@@ -1046,10 +1073,12 @@ if (typeof document !== "undefined") {
   function applyTheme(light) {
     document.documentElement.dataset.theme = light ? "light" : "dark";
     syncThemeIcon();
+    const bgHex = light ? "#f1f5f9" : "#060b16";
+    const barHex = light ? "#ffffff" : "#060b16";
     try {
-      tg && tg.setHeaderColor && tg.setHeaderColor(light ? "#1e40af" : "#0d1b3e");
-      tg && tg.setBackgroundColor && tg.setBackgroundColor(light ? "#f1f5f9" : "#060b16");
-      tg && tg.setBottomBarColor && tg.setBottomBarColor(light ? "#ffffff" : "#060b16");
+      tg && tg.setHeaderColor && tg.setHeaderColor(bgHex);
+      tg && tg.setBackgroundColor && tg.setBackgroundColor(bgHex);
+      tg && tg.setBottomBarColor && tg.setBottomBarColor(barHex);
     } catch (e) { /* ignore */ }
   }
 
@@ -1096,7 +1125,16 @@ if (typeof document !== "undefined") {
       show(renderVaultGate(), opts.anim);
       return;
     }
-    show(data || id === "more" ? RENDER[id](data) : SKELETON, opts.anim);
+    if (!data && id !== "more") {
+      // Сохраняем полосу семестров на экране во время подгрузки, чтобы переключение семестров никогда не зависало
+      if (SEM_SCREENS.has(id) && !(id === "resources" && S.res.subject)) {
+        show(semPager(null, S.sem[id] || "13") + SKELETON, opts.anim);
+      } else {
+        show(SKELETON, opts.anim);
+      }
+      return;
+    }
+    show(RENDER[id](data), opts.anim);
     const [t, s] = heroFor(id, data);
     $("title").textContent = t; $("subtitle").textContent = s || "\u00a0";
   }
@@ -1120,7 +1158,16 @@ if (typeof document !== "undefined") {
       paint(id, data, lastFetch, { bg: true, token: my });
     } catch (err) {
       if (my !== reqId) return;
-      if (e) toast("Нет связи — показаны сохранённые данные"); else show(errorView(err));
+      if (e) {
+        toast("Нет связи — показаны сохранённые данные");
+      } else if (id === "nb") {
+        // Если по выбранному семестру в HEMIS нет данных НБ — выводим «Нет пропусков», сохраняя переключатель семестров
+        const fallbackSem = String(S.sem.nb || "13");
+        const emptyNb = { semesters: { codes: ALL_SEM_CODES, current: "13" }, report: { semester: fallbackSem, semester_no: semNo(fallbackSem), limit_pct: 25, total_hours: 0, excused_total: 0, rows: [] } };
+        paint(id, emptyNb, Date.now(), { token: my });
+      } else {
+        show((SEM_SCREENS.has(id) ? semPager(null, S.sem[id] || "13") : "") + errorView(err));
+      }
     } finally {
       if (my === reqId) setBusy(false);
     }
@@ -1245,11 +1292,17 @@ if (typeof document !== "undefined") {
     week: (el) => { const dir = Number(el.dataset.dir); S.week += dir; S.day = null; load({ anim: dir > 0 ? "next" : "prev" }); },
     day: (el) => { S.day = el.dataset.day; repaint("fade"); },
     sem: (el) => {
-      const id = current(), e = cget(pathFor(id)); if (!e) return;
-      const sems = normalizeSemesters(e.data.semesters);
-      const dir = Number(el.dataset.dir), cur = String(S.sem[id] || sems.current), i = sems.codes.indexOf(cur) + dir;
+      const id = current(), e = cget(pathFor(id));
+      const sems = normalizeSemesters(e && e.data && e.data.semesters);
+      const dir = Number(el.dataset.dir);
+      const cur = String(S.sem[id] || sems.current || "13");
+      const curIdx = sems.codes.indexOf(cur);
+      const i = (curIdx >= 0 ? curIdx : 2) + dir;
       if (i < 0 || i >= sems.codes.length) return;
-      S.sem[id] = sems.codes[i]; if (id === "exams") S.examTab = null; S.open.clear(); load({ anim: dir > 0 ? "next" : "prev" });
+      S.sem[id] = sems.codes[i];
+      if (id === "exams") S.examTab = null;
+      S.open.clear();
+      load({ anim: dir > 0 ? "next" : "prev" });
     },
     semjump: (el) => {
       const id = current(), code = String(el.dataset.code || "");
@@ -1438,7 +1491,10 @@ if (typeof document !== "undefined") {
   }, 30000);
 
   if (tg) {
-    tg.ready(); tg.expand();
+    tg.ready();
+    tg.expand();
+    try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) { /* ignore */ }
+    try { if (tg.requestFullscreen) tg.requestFullscreen(); } catch (e) { /* ignore */ }
     tg.onEvent && tg.onEvent("themeChanged", setThemeFromEnv);
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
@@ -1559,7 +1615,7 @@ function demoApi(path, method, body) {
   const q = new URLSearchParams(path.split("?")[1] || ""), kind = path.split("?")[0];
   const sems = { codes: ALL_SEM_CODES, current: "13" };
   const sem = sems.codes.includes(q.get("semester")) ? q.get("semester") : "13";
-  const wait = (v) => new Promise((r) => setTimeout(() => r(v), 90));
+  const wait = (v) => new Promise((r) => setTimeout(() => r(v), 50));
   const d = (n) => iso(addDays(base, n));
 
   if (method === "POST") {
@@ -1645,16 +1701,19 @@ function demoApi(path, method, body) {
     return wait({ today, monday: iso(mon), sunday: iso(addDays(mon, 6)), published: Math.abs(off) < 3, lessons: Math.abs(off) < 3 ? lessons : [] });
   }
   if (kind === "nb") {
-    const rows = [
+    const rows13 = [
       { subject: "Ekonometrika", hours: 6, pairs: 3, limit_hours: 15, hours_src: "manual", status: "ok", left_pairs: 4, records: [{ date: "2026-10-19", pair: "1", type: "Лекция", unexcused_h: 2 }] },
       { subject: "Philosophy", hours: 14, pairs: 7, limit_hours: 15, hours_src: "manual", status: "warn", left_pairs: 0, records: [{ date: "2026-10-12", pair: "2", type: "Лекция", unexcused_h: 2 }, { date: "2026-10-19", pair: "3", type: "Практика", unexcused_h: 2 }] },
       { subject: "Mikroiqtisodiyot", hours: 4, pairs: 2, limit_hours: 15, hours_src: "schedule", status: "ok", left_pairs: 5, records: [{ date: "2026-10-05", pair: "1", type: "Лекция", unexcused_h: 2 }] },
       { subject: "Statistika", hours: 2, pairs: 1, limit_hours: 15, hours_src: "manual", status: "ok", left_pairs: 6, records: [] },
     ];
-    const isFuture = Number(sem) > 13;
-    const semRows = isFuture ? [] : sem === "13" ? rows : rows.slice(0, 2);
+    const rows12 = [
+      { subject: "Makroiqtisodiyot I", hours: 4, pairs: 2, limit_hours: 15, hours_src: "manual", status: "ok", left_pairs: 5, records: [{ date: "2026-04-14", pair: "2", type: "Практика", unexcused_h: 2 }] },
+    ];
+    const semRows = sem === "13" ? rows13 : sem === "12" ? rows12 : [];
     const totalH = semRows.reduce((a, r) => a + r.hours, 0);
-    return wait({ semesters: sems, report: { semester: sem, semester_no: semNo(sem), limit_pct: 25, total_hours: totalH, excused_total: isFuture ? 0 : 4, hours_table_missing: [], rows: semRows } });
+    const excH = sem === "13" ? 4 : 0;
+    return wait({ semesters: sems, report: { semester: sem, semester_no: semNo(sem), limit_pct: 25, total_hours: totalH, excused_total: excH, hours_table_missing: [], rows: semRows } });
   }
   if (kind === "exams") {
     const ex = (id, subject, group, sheet, n, start, end, room, teacher, k) => ({ id, subject, kind: k || "", group, sheet, date: d(n), start, end, room, teacher });
