@@ -1,4 +1,4 @@
-/* Джарвис · HEMIS & Финансы — Telegram Mini App 2.7.
+/* Helper · Учёба и Финансы — Telegram Mini App 2.8.
    - Безрамочный полноэкранный режим (Bot API 8.0 requestFullscreen + disableVerticalSwipes)
    - Вкладка «Финансы» справа без жёлтой точки, вход через BiometricManager + PIN («Доступ к разделу финансы / Подтвердите вход», иконка 🔑 без текста PIN, без дублирующей кнопки отпечатка)
    - Быстрое и безотказное переключение всех 8 семестров во вкладке НБ и вывод «Нет пропусков» при отсутствии данных
@@ -98,8 +98,6 @@ const S = {
   day: null,
   sem: {},
   examTab: null,
-  gradeMode: "overview", // overview | targets
-  goalGrade: "5",        // 5 | 4 | 3
   notifBranch: "bot",    // bot | hemis (две ветви уведомлений)
   moneyPeriod: "month",  // today | week | month | year
   moneyTab: "ops",       // ops | cats | debts | subs
@@ -133,23 +131,41 @@ const TTL = {
 const LS = "jv2:";
 const mem = new Map();
 
-function getSavedPin() {
-  try { return (typeof localStorage !== "undefined" && localStorage.getItem(LS + "pin")) || "0000"; } catch (e) { return "0000"; }
+// PIN хранится только в виде соли + SHA-256 (не в открытом виде). По умолчанию — «0000», пока пользователь не задал свой.
+async function sha256Hex(text) {
+  try {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch (e) { return "p:" + text; } // нет crypto.subtle (старый WebView): запасной вариант
 }
-function setSavedPin(pin) {
-  try { if (typeof localStorage !== "undefined") localStorage.setItem(LS + "pin", String(pin)); } catch (e) { /* ignore */ }
+function pinSalt() {
+  try {
+    let salt = localStorage.getItem(LS + "pinsalt");
+    if (!salt) { salt = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(LS + "pinsalt", salt); }
+    return salt;
+  } catch (e) { return "static-salt"; }
+}
+async function checkSavedPin(pin) {
+  try {
+    const legacy = localStorage.getItem(LS + "pin"); // старый формат: PIN открытым текстом — переводим в хеш
+    if (legacy) { await setSavedPin(legacy); localStorage.removeItem(LS + "pin"); }
+    const stored = localStorage.getItem(LS + "pinh");
+    if (!stored) return String(pin) === "0000";
+    return stored === await sha256Hex(pinSalt() + String(pin));
+  } catch (e) { return String(pin) === "0000"; }
+}
+async function setSavedPin(pin) {
+  try { localStorage.setItem(LS + "pinh", await sha256Hex(pinSalt() + String(pin))); } catch (e) { /* ignore */ }
 }
 
 const DEFAULT_NOTIF_PREFS = {
   // Ветвь «Бот Джарвис» (время и частота, тихий час 23:30–05:50)
-  bot_morning_time: "07:30",
-  bot_evening_time: "21:00",
+  bot_morning_time: "06:00",
+  bot_evening_time: "23:00",
   bot_quiet_hours: "23:30-05:50",
-  bot_digest_freq: "2x_day",        // realtime | 3h | 2x_day | daily
-  bot_fin_freq: "daily",            // every_tx | daily | weekly
   // Ветвь «HEMIS» (время и частота, опрос каждые 20 мин в 05:40–23:00 по Ташкенту)
-  hemis_morning_time: "07:30",
-  hemis_prep_time: "19:00",
+  hemis_morning_time: "06:30",
+  hemis_prep_time: "16:00",
   hemis_before_min: "10",           // 5 | 10 | 15 | 30
   hemis_poll_freq: "20m_540_2300",  // 20m_540_2300 | 15m | 30m | 1h
   hemis_deadline_freq: "standard",  // intensive | standard | minimal
@@ -167,9 +183,12 @@ function getNotifPrefs(serverPrefs) {
   return merged;
 }
 function saveNotifPref(key, val) {
-  const next = { ...getNotifPrefs(), [key]: String(val) };
-  try { if (typeof localStorage !== "undefined") localStorage.setItem(LS + "notif_prefs", JSON.stringify(next)); } catch (e) { /* ignore */ }
-  return next;
+  // В localStorage кладём только изменённое пользователем: остальное приходит с сервера (там реальные значения бота)
+  let saved = {};
+  try { saved = JSON.parse((typeof localStorage !== "undefined" && localStorage.getItem(LS + "notif_prefs")) || "{}") || {}; } catch (e) { /* ignore */ }
+  saved[key] = String(val);
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(LS + "notif_prefs", JSON.stringify(saved)); } catch (e) { /* ignore */ }
+  return { ...getNotifPrefs(), ...saved };
 }
 
 function cget(path) {
@@ -187,7 +206,7 @@ function cset(path, data) {
   mem.set(path, e);
   const write = () => localStorage.setItem(LS + path, JSON.stringify(e));
   try { write(); } catch (err) {
-    try { Object.keys(localStorage).filter((k) => k.startsWith(LS) && !["jv2:pin", "jv2:theme", "jv2:notif_prefs"].includes(k)).forEach((k) => localStorage.removeItem(k)); write(); } catch (err2) { /* ignore */ }
+    try { Object.keys(localStorage).filter((k) => k.startsWith(LS) && !["jv2:pin", "jv2:pinh", "jv2:pinsalt", "jv2:theme", "jv2:notif_prefs"].includes(k)).forEach((k) => localStorage.removeItem(k)); write(); } catch (err2) { /* ignore */ }
   }
 }
 const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "только что" : m < 60 ? `${m} мин назад` : m < 1440 ? `${Math.round(m / 60)} ч назад` : `${Math.round(m / 1440)} дн. назад`; };
@@ -270,7 +289,7 @@ const empty = (emoji, title, text) => `<div class="card empty-hint"><div class="
 const seg = (items, active, action) => `<div class="seg">${items.map(([k, t, sub]) => `<button class="${k === active ? "on" : ""}" data-a="${action}" data-k="${k}">${esc(t)}${sub != null && sub !== "" ? `<small>${esc(sub)}</small>` : ""}</button>`).join("")}</div>`;
 const fileList = (files) => files && files.length ? `<div class="files">${files.map((f) => `<div class="file">${ico("file")}<span>${esc(f.name)}</span><small>${sizeKb(f.size)}</small></div>`).join("")}</div>` : "";
 
-// ---------------------------------------------------------------- расписание (без кнопок .ics и экзаменов)
+// ---------------------------------------------------------------- расписание (без экзаменов)
 const typeClass = (t) => { const x = (t || "").toLowerCase(); return x.includes("лек") || x.includes("lec") ? "tag-lec" : x.includes("лаб") || x.includes("lab") ? "tag-lab" : "tag-prac"; };
 const hhmm = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 
@@ -384,43 +403,8 @@ function renderExams(d) {
   return html;
 }
 
-// ---------------------------------------------------------------- оценки и калькулятор целевых баллов (/api/grade_targets)
+// ---------------------------------------------------------------- оценки
 const grade5 = (pct) => (pct == null ? null : pct >= 86 ? 5 : pct >= 71 ? 4 : pct >= 55 ? 3 : 2);
-
-function forecast(o) {
-  if (!o || o.ball == null || !o.max || !(o.max > 0 && o.max < 100)) return "";
-  const left = 100 - o.max, parts = [];
-  [[3, 55], [4, 71], [5, 86]].forEach(([g, t]) => { const need = t - o.ball; if (need > 0) parts.push(`«${g}» — ${need <= left ? "ещё " + num(Math.round(need * 10) / 10) : "недостижима"}`); });
-  return parts.length ? `🎯 Осталось ${num(left)} б. · до ${parts.join(" · ")}` : "🎯 Высшая оценка уже обеспечена";
-}
-
-function buildTargetsFromPerf(p) {
-  if (!p || !p.subjects) return [];
-  const thresholds = [["3", 55], ["4", 71], ["5", 86]];
-  const out = p.subjects.map((s) => {
-    const o = s.overall || {};
-    const cur = +(o.ball ?? ((s.current?.ball || 0) + (s.mid?.ball || 0)));
-    const maxP = +(o.max || ((s.current?.max || 0) + (s.mid?.max || 0)) || 70);
-    const rem = Math.max(0, 100 - maxP);
-    const targets = {};
-    thresholds.forEach(([g, th]) => {
-      const need = Math.max(0, Math.round((th - cur) * 10) / 10);
-      const reachable = need <= rem || (rem === 0 && cur >= th);
-      const reqPct = rem > 0 && need > 0 ? Math.round((need / rem) * 1000) / 10 : (need === 0 ? 0 : null);
-      targets[g] = { need_points: need, remaining_pool: rem, reachable, required_pct_of_remaining: reqPct };
-    });
-    return {
-      name: s.name,
-      credit: s.credit || 0,
-      current_total: Math.round(cur * 10) / 10,
-      played_max: Math.round(maxP * 10) / 10,
-      remaining_pool: Math.round(rem * 10) / 10,
-      targets,
-    };
-  });
-  out.sort((a, b) => (b.credit - a.credit) || (b.targets["4"].need_points - a.targets["4"].need_points));
-  return out;
-}
 
 function renderGrades(d) {
   const p = d.perf || { subjects: [], credits: 0 };
@@ -428,40 +412,8 @@ function renderGrades(d) {
   S.sem.grades = activeSem;
   let html = semPager(d.semesters, activeSem);
   html += `<div class="tiles four"><div class="tile"><b>${p.gpa_calc ?? "—"}</b><span>GPA</span></div><div class="tile"><b>${p.avg_pct != null ? num(p.avg_pct) + "%" : "—"}</b><span>Средний</span></div><div class="tile"><b>${p.credits}</b><span>Кредитов</span></div><div class="tile"><b>${p.subjects.length}</b><span>Предметов</span></div></div>`;
-  html += seg([["overview", "📊 Баллы и GPA", "текущие"], ["targets", "🎯 Цели на сессию", "калькулятор"]], S.gradeMode, "grademode");
 
   if (!p.subjects.length) return html + empty("🎓", "Предметов пока нет", "");
-
-  if (S.gradeMode === "targets") {
-    const tList = (d.targets && d.targets.subjects) ? d.targets.subjects : buildTargetsFromPerf(p);
-    html += seg([["5", "На «5»", "86+ баллов"], ["4", "На «4»", "71+ балл"], ["3", "На «3»", "55+ баллов"]], S.goalGrade, "goalgrade");
-    return html + tList.map((s) => {
-      const gGoal = s.targets[S.goalGrade] || s.targets["5"];
-      const badgeTone = gGoal.need_points <= 0 ? "tone-ok" : !gGoal.reachable ? "tone-bad" : gGoal.required_pct_of_remaining > 80 ? "tone-warn" : "tone-brand";
-      const badgeTxt = gGoal.need_points <= 0 ? "Уже закрыто ✅" : !gGoal.reachable ? "Недостижимо" : `Нужно +${num(gGoal.need_points)} б.`;
-      return `<div class="card">
-        <div class="item-top">
-          <div class="grow">
-            <div class="name">${esc(s.name)}</div>
-            <div class="muted small" style="margin-top:2px">Вес: <b>${s.credit} кр.</b> · Набрано <b>${num(s.current_total)}</b> из ${num(s.played_max)} б. (в розыгрыше ${num(s.remaining_pool)} б.)</div>
-          </div>
-          <span class="pill ${badgeTone}">${badgeTxt}</span>
-        </div>
-        <div class="target-grid">
-          ${["3", "4", "5"].map((g) => {
-            const t = s.targets[g];
-            const val = t.need_points <= 0 ? "✅ Есть" : !t.reachable ? "⛔ Нет" : `+${num(t.need_points)} б.`;
-            const sub = t.need_points <= 0 ? "гарантировано" : !t.reachable ? `макс +${num(s.remaining_pool)}` : `${num(t.required_pct_of_remaining)}% от остатка`;
-            return `<div class="target-box ${S.goalGrade === g ? "active-goal" : ""}">
-              <small>Оценка «${g}»</small>
-              <b>${val}</b>
-              <span>${sub}</span>
-            </div>`;
-          }).join("")}
-        </div>
-      </div>`;
-    }).join("");
-  }
 
   return html + p.subjects.map((s) => {
     const o = s.overall, has = o && o.ball != null && o.ball !== 0, g = s.grade5 || (has ? grade5(o.pct) : null);
@@ -471,7 +423,7 @@ function renderGrades(d) {
         <div class="grow"><div class="name">${esc(s.name)}</div><div class="muted small">${s.credit} кр.${has ? ` · ${num(o.ball)} / ${num(o.max)} б.` : " · учебный план семестра"}</div></div>
         ${g ? `<div class="gbadge">${g}</div>` : ""}</div>
       ${parts.length ? `<div class="parts">${parts.map(([n, v]) => `<div class="part"><div class="ptop"><b>${esc(n)}</b><span>${num(v.ball)}${v.max ? ` / ${num(v.max)}` : ""}</span></div><div class="pb"><i style="width:${Math.min(v.pct ?? (v.max ? (v.ball / v.max) * 100 : 0), 100)}%"></i></div></div>`).join("")}</div>` : ""}
-      ${forecast(o) ? `<div class="forecast">${forecast(o)}</div>` : ""}</div>`;
+</div>`;
   }).join("");
 }
 
@@ -617,6 +569,7 @@ function renderMoney(d) {
           <div style="text-align:right">
             <b style="font-size:17px">${fmtMoney(db.amount)} сум</b>
             ${db.due_date ? `<div class="muted tiny">до ${esc(db.due_date)}</div>` : ""}
+            <div style="margin-top:6px"><button class="btn tonal sm" data-a="debtclose" data-id="${db.id}" data-person="${esc(db.person)}">Закрыть долг</button></div>
           </div>
         </div>
       </div>`;
@@ -634,7 +587,7 @@ function renderMoney(d) {
         <div style="text-align:right">
           <b>${fmtMoney(s.amount)} ${esc(s.currency)}</b>
           <div style="margin-top:6px">
-            <button class="btn tonal sm" data-a="subpay" data-title="${esc(s.title)}" data-amount="${s.amount}" data-cur="${esc(s.currency)}" data-cat="${esc(s.category)}">Списать</button>
+            <button class="btn tonal sm" data-a="subpay" data-id="${s.id}" data-title="${esc(s.title)}" data-amount="${s.amount}" data-cur="${esc(s.currency)}" data-cat="${esc(s.category)}">Списать</button>
           </div>
         </div>
       </div>
@@ -656,6 +609,7 @@ function renderMoney(d) {
         <div class="muted tiny">${esc(sub)}</div>
       </div>
       <div class="tx-amt ${isInc ? "inc" : "exp"}">${sign}${fmtMoney(tx.amount)}</div>
+      ${tx.id ? `<button class="chip" data-a="txvoid" data-id="${tx.id}" title="Отменить операцию" aria-label="Отменить операцию">↩︎</button>` : ""}
     </div>`;
   }).join("")}</div>`;
 }
@@ -694,7 +648,7 @@ const MENU = [
   ["resources", "Учебные ресурсы", "Лекции и презентации по предметам", "book", "ok"],
   ["subjects", "Предметы семестра", "Кредиты и аудиторная нагрузка (1–8 семестр)", "layers", "brand"],
   ["contract", "Контракт на обучение", "Оплата, остаток и ежемесячный план", "wallet", "warn"],
-  ["settings", "Уведомления", "Две ветви: Бот и HEMIS · время и частота", "bell", "bad"],
+  ["settings", "Уведомления", "Две ветви: Бот и Helper · время и частота", "bell", "bad"],
 ];
 
 function renderMore() {
@@ -793,10 +747,8 @@ function renderContract(c) {
 // ---------- Двухветвевые настройки уведомлений («Бот» и «HEMIS»)
 const BOT_TOGGLE_META = [
   ["bot_briefing_on", "Утренний ИИ-брифинг Джарвиса", "План дня, задачи, погода и приоритеты"],
-  ["bot_finance_on", "Финансовый дайджест и Burn-Rate", "Вечерний отчёт по расходам и остатку дневного лимита"],
-  ["bot_subs_on", "Подписки и возврат долгов", "Напоминания за день до списания или даты долга"],
-  ["bot_reminders_on", "Умные напоминания и таймеры", "Персональные поручения, созданные в диалоге с ботом"],
-  ["bot_memory_on", "Еженедельный обзор целей", "Воскресная сводка прогресса и заметок памяти"],
+  ["bot_finance_on", "Вечерний итог дня и финансы", "Вечером: дела, расходы за день и остатки"],
+  ["bot_subs_on", "Подписки и возврат долгов", "Утром в день списания подписки и за день до срока долга"],
 ];
 
 const HEMIS_TOGGLE_META = [
@@ -843,25 +795,14 @@ function renderSettings(d) {
 
   const branchTabs = seg([
     ["bot", "🤖 Уведомления Бота", "ИИ, финансы, задачи"],
-    ["hemis", "🎓 Уведомления HEMIS", "пары, оценки, НБ"],
+    ["hemis", "🎓 Уведомления Helper", "пары, оценки, НБ"],
   ], S.notifBranch, "notifbranch");
 
   if (S.notifBranch === "bot") {
     const timeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «Бот»</div>
       <div class="card notif-block">
-        ${renderTimeRow("Утренний ИИ-брифинг", "Сводка задач, планов и курса валют утром", "bot_morning_time", prefs.bot_morning_time, ["07:00", "07:30", "08:00", "09:00"])}
-        ${renderTimeRow("Вечерний финансовый отчёт", "Итоги расходов за день и прогноз Burn-Rate", "bot_evening_time", prefs.bot_evening_time, ["20:00", "21:00", "22:00", "23:00"])}
-        ${renderFreqRow("Частота ИИ-дайджестов и проверок", "Как часто бот присылает сводки по задачам и памяти", "bot_digest_freq", prefs.bot_digest_freq, [
-          ["realtime", "Мгновенно"],
-          ["3h", "Каждые 3 ч"],
-          ["2x_day", "2 раза в день"],
-          ["daily", "Раз в день"],
-        ])}
-        ${renderFreqRow("Частота финансовых оповещений", "Режим уведомлений о лимите и тратах", "bot_fin_freq", prefs.bot_fin_freq, [
-          ["every_tx", "После каждой траты"],
-          ["daily", "Вечерний отчёт"],
-          ["weekly", "Раз в неделю"],
-        ])}
+        ${renderTimeRow("Утренний ИИ-брифинг", "Сводка задач, планов и курса валют утром", "bot_morning_time", prefs.bot_morning_time, ["06:00", "07:00", "07:30", "08:00", "09:00"])}
+        ${renderTimeRow("Вечерний итог дня", "Дела, расходы и остатки за день", "bot_evening_time", prefs.bot_evening_time, ["20:00", "21:00", "22:00", "23:00"])}
         ${renderFreqRow("Тихий час (Не беспокоить)", "Интервал без звуковых уведомлений ночью по Ташкенту", "bot_quiet_hours", prefs.bot_quiet_hours, [
           ["23:30-05:50", "23:30 – 05:50"],
           ["00:00-06:00", "00:00 – 06:00"],
@@ -881,10 +822,10 @@ function renderSettings(d) {
   }
 
   // Ветвь «HEMIS»
-  const warn = d && d.auth_failed ? `<div class="card notice"><span class="menu-ico tone-bad">${ico("bell")}</span><div><b>HEMIS не принял пароль</b><div class="muted small">Введите его заново в боте: Меню → HEMIS → «Войти».</div></div></div>` : "";
+  const warn = d && d.auth_failed ? `<div class="card notice"><span class="menu-ico tone-bad">${ico("bell")}</span><div><b>HEMIS не принял пароль</b><div class="muted small">Введите его заново в боте: Меню → Helper → «Войти».</div></div></div>` : "";
   const last = d && d.last_ok_at ? `<p class="muted small" style="text-align:center;margin:4px 0 0">Последняя синхронизация с HEMIS: ${esc(String(d.last_ok_at).replace("T", " ").slice(0, 16))}</p>` : "";
 
-  const hemisTimeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «HEMIS»</div>
+  const hemisTimeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «Helper»</div>
     <div class="card notif-block">
       ${renderFreqRow("Опрос HEMIS по расписанию (Ташкент)", "Стучимся в HEMIS каждые 20 минут только в промежутке 05:40 – 23:00", "hemis_poll_freq", prefs.hemis_poll_freq, [
         ["20m_540_2300", "Каждые 20 мин (05:40 – 23:00)"],
@@ -892,8 +833,8 @@ function renderSettings(d) {
         ["30m", "Каждые 30 мин"],
         ["1h", "Каждый час"],
       ])}
-      ${renderTimeRow("Время утренней сводки пар", "Во сколько присылать расписание занятий на день", "hemis_morning_time", prefs.hemis_morning_time, ["06:45", "07:15", "07:30", "08:00"])}
-      ${renderTimeRow("Время напоминания о семинарах", "Вечерняя проверка практик и семинаров на завтра", "hemis_prep_time", prefs.hemis_prep_time, ["18:00", "19:00", "20:00", "21:00"])}
+      ${renderTimeRow("Время утренней сводки пар", "Во сколько присылать расписание занятий на день", "hemis_morning_time", prefs.hemis_morning_time, ["06:30", "06:45", "07:15", "07:30", "08:00"])}
+      ${renderTimeRow("Время напоминания о семинарах", "Вечерняя проверка практик и семинаров на завтра", "hemis_prep_time", prefs.hemis_prep_time, ["16:00", "18:00", "19:00", "20:00", "21:00"])}
       ${renderFreqRow("Уведомление перед началом пары", "За сколько минут до звонка напоминать об аудитории", "hemis_before_min", prefs.hemis_before_min, [
         ["5", "За 5 мин"],
         ["10", "За 10 мин"],
@@ -902,12 +843,12 @@ function renderSettings(d) {
       ])}
       ${renderFreqRow("Частота напоминаний о дедлайнах", "График предупреждений о сроках сдачи и экзаменах", "hemis_deadline_freq", prefs.hemis_deadline_freq, [
         ["intensive", "За 7, 3, 1 дн. и 3 ч"],
-        ["standard", "За 3 и 1 день"],
+        ["standard", "За 3 дня, 1 день, 12 ч и 1 ч"],
         ["minimal", "Только за 24 ч"],
       ])}
     </div>`;
 
-  const hemisTogglesCard = `<div class="section-title">🔔 Категории оповещений · HEMIS</div>
+  const hemisTogglesCard = `<div class="section-title">🔔 Категории оповещений · Helper</div>
     <div class="card menu">
       ${HEMIS_TOGGLE_META.map(([key, label, sub]) => `<button class="setting" data-a="setting" data-key="${esc(key)}">
         <span class="grow"><b>${esc(label)}</b><span class="setting-sub">${esc(sub)}</span></span>
@@ -932,7 +873,7 @@ function heroFor(id, d) {
     }
     case "grades": {
       const sCode = S.sem.grades || (d && d.perf && d.perf.semester) || "13";
-      return [S.gradeMode === "targets" ? "Цели на сессию" : "Оценки и GPA", `${semNo(sCode)}-й семестр${d && d.perf && d.perf.period ? " · " + d.perf.period : ""}`];
+      return ["Оценки и GPA", `${semNo(sCode)}-й семестр${d && d.perf && d.perf.period ? " · " + d.perf.period : ""}`];
     }
     case "money":
       if (!S.moneyUnlocked) return ["Финансы", "Подтвердите вход"];
@@ -950,8 +891,8 @@ function heroFor(id, d) {
       return S.res.subject ? [S.res.name || "Ресурсы", "Материалы предмета"] : ["Ресурсы", `${semNo(sCode)}-й семестр`];
     }
     case "contract": return ["Контракт", "Оплата и расчёт по месяцам"];
-    case "settings": return ["Уведомления", S.notifBranch === "bot" ? "Ветвь «Бот Джарвис» · время и частота" : "Ветвь «HEMIS» · 05:40–23:00 каждые 20 мин"];
-    default: return ["Ещё", "Разделы HEMIS и инструменты"];
+    case "settings": return ["Уведомления", S.notifBranch === "bot" ? "Ветвь «Бот Джарвис» · время и частота" : "Ветвь «Helper» · учёба и расписание"];
+    default: return ["Ещё", "Разделы Helper и инструменты"];
   }
 }
 const RENDER = {
@@ -970,7 +911,7 @@ const RENDER = {
 
 function errorView(e) {
   const kinds = {
-    not_connected: ["🔌", "HEMIS не подключён", "Откройте бота: Меню → HEMIS → «Войти»."],
+    not_connected: ["🔌", "HEMIS не подключён", "Откройте бота: Меню → Helper → «Войти»."],
     unauthorized: ["🔒", "Нет доступа", "Откройте приложение кнопкой из бота — данные видит только владелец."],
     network: ["📡", "Нет связи с ботом", "Проверьте интернет. Если бот на бесплатном Render, он мог заснуть — повторите через 30 секунд."],
     noapi: ["🧭", "Не указан адрес бота", "Откройте приложение кнопкой из бота или задайте API_URL в config.js."],
@@ -1048,7 +989,13 @@ if (typeof document !== "undefined") {
       return;
     }
 
-    // Демо-режим (в браузере или на устройстве без BiometricManager): визуальное сканирование отпечатка за 500 мс
+    // Нет BiometricManager (Telegram Desktop/Web, старое устройство): отпечаток «подтвердить» нельзя — только PIN.
+    // Визуальная имитация сканирования остаётся лишь в демо-режиме (открытие в браузере без Telegram).
+    if (!DEMO) {
+      haptic("error");
+      toast("Биометрия недоступна на этом устройстве — введите PIN-код");
+      return;
+    }
     if (S.bioScanning) return;
     S.bioScanning = true;
     repaint(null);
@@ -1059,7 +1006,7 @@ if (typeof document !== "undefined") {
       S.pinError = false;
       renderTabsBar();
       haptic("success");
-      toast("Отпечаток подтверждён 🔓");
+      toast("Отпечаток подтверждён 🔓 (демо)");
       load({ anim: "fade" });
     }, 520);
   }
@@ -1218,14 +1165,14 @@ if (typeof document !== "undefined") {
     open: (el) => { S.sub = el.dataset.sub; S.open.clear(); if (S.sub === "resources") S.res.subject = null; load({ anim: "next" }); },
     back: goBack,
     bioauth: () => triggerBiometricAuth(),
-    pinkey: (el) => {
+    pinkey: async (el) => {
       if (S.pinBuffer.length >= 4) return;
       S.pinError = false;
       S.pinBuffer += String(el.dataset.digit || "");
       repaint(null);
       if (S.pinBuffer.length === 4) {
         if (S.pinSetupMode) {
-          setSavedPin(S.pinBuffer);
+          await setSavedPin(S.pinBuffer);
           S.pinSetupMode = false;
           S.pinBuffer = "";
           haptic("success");
@@ -1233,7 +1180,7 @@ if (typeof document !== "undefined") {
           load({ anim: "fade" });
           return;
         }
-        if (S.pinBuffer === getSavedPin()) {
+        if (await checkSavedPin(S.pinBuffer)) {
           S.moneyUnlocked = true;
           S.pinBuffer = "";
           renderTabsBar();
@@ -1285,7 +1232,7 @@ if (typeof document !== "undefined") {
       toast(nextLight ? "Светлая тема" : "Тёмная тема");
     },
     refresh: () => {
-      if (!DEMO && Date.now() - lastFetch < 15000) { toast("Данные уже свежие"); return; }
+      if (refreshBtn.classList.contains("spin")) return; // уже грузим — не плодим запросы
       toast("Обновляю…"); load({ force: true, anim: null });
     },
     retry: () => load({ force: true }),
@@ -1315,8 +1262,6 @@ if (typeof document !== "undefined") {
       load({ anim: Number(code) > Number(prevCode) ? "next" : "prev" });
     },
     examtab: (el) => { S.examTab = el.dataset.k; repaint("fade"); },
-    grademode: (el) => { S.gradeMode = el.dataset.k; repaint("fade"); },
-    goalgrade: (el) => { S.goalGrade = el.dataset.k; repaint("fade"); },
     notifbranch: (el) => { S.notifBranch = el.dataset.k; repaint("fade"); },
     notiffreq: async (el) => {
       const key = el.dataset.key, val = el.dataset.val;
@@ -1359,24 +1304,45 @@ if (typeof document !== "undefined") {
         el.disabled = false;
       }
     },
+    debtclose: async (el) => {
+      if (el.disabled) return;
+      el.disabled = true;
+      try {
+        await post("money/debt/settle", { id: Number(el.dataset.id) });
+        toast(`Долг «${el.dataset.person}» закрыт ✅`);
+        haptic("success");
+        await load({ force: true, anim: "fade" });
+      } catch (err) {
+        toast((err && err.message) || "Не удалось закрыть долг");
+      } finally {
+        el.disabled = false;
+      }
+    },
+    txvoid: async (el) => {
+      if (el.disabled) return;
+      el.disabled = true;
+      try {
+        await post("money/tx/void", { id: Number(el.dataset.id) });
+        toast("Операция отменена ↩︎");
+        haptic("success");
+        await load({ force: true, anim: "fade" });
+      } catch (err) {
+        toast((err && err.message) || "Не удалось отменить операцию");
+      } finally {
+        el.disabled = false;
+      }
+    },
     subpay: async (el) => {
       const d = el.dataset;
       el.disabled = true;
       try {
-        await post("money/tx", {
-          kind: "expense",
-          amount: parseFloat(d.amount),
-          currency: d.cur || "UZS",
-          category: d.cat || "подписки",
-          account: "карта",
-          description: `Подписка: ${d.title}`,
-        });
+        await post("money/subscription/charge", { id: Number(d.id) });
         toast(`Списание «${d.title}» записано ✅`);
         haptic("success");
         S.moneyTab = "ops";
         await load({ force: true, anim: "fade" });
       } catch (err) {
-        toast("Не удалось записать списание");
+        toast((err && err.message) || "Не удалось записать списание");
       } finally {
         el.disabled = false;
       }
@@ -1543,8 +1509,6 @@ const demoToggleState = {
   bot_briefing_on: true,
   bot_finance_on: true,
   bot_subs_on: true,
-  bot_reminders_on: true,
-  bot_memory_on: true,
   // Ветвь «HEMIS»
   morning_on: true,
   lesson_alert_on: true,
@@ -1622,6 +1586,24 @@ function demoApi(path, method, body) {
     if (kind === "settings" && body) {
       if (body.key) demoToggleState[body.key] = Boolean(body.value);
       if (body.pref_key) saveNotifPref(body.pref_key, body.pref_value);
+      return wait({ ok: true });
+    }
+    if (kind === "money/debt/settle" && body) {
+      demoMoneyState.debts = (demoMoneyState.debts || []).filter((x) => x.id !== body.id);
+      return wait({ ok: true });
+    }
+    if (kind === "money/tx/void" && body) {
+      const tx = demoMoneyState.recent.find((x) => x.id === body.id);
+      if (tx) {
+        const acc = demoMoneyState.accounts.find((a) => a.name === tx.account);
+        if (acc) acc.balance += tx.kind === "income" ? -tx.amount : tx.kind === "expense" ? tx.amount : 0;
+        demoMoneyState.recent = demoMoneyState.recent.filter((x) => x.id !== body.id);
+      }
+      return wait({ ok: true });
+    }
+    if (kind === "money/subscription/charge" && body) {
+      const sub = (demoMoneyState.subscriptions || []).find((x) => x.id === body.id);
+      if (sub) return demoApi("money/tx", "POST", { kind: "expense", amount: sub.amount, currency: sub.currency, category: sub.category, account: "карта", description: `Подписка: ${sub.title}` });
       return wait({ ok: true });
     }
     if (kind === "money/tx" && body) {
@@ -1728,7 +1710,7 @@ function demoApi(path, method, body) {
     ] : [];
     return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), today, exams });
   }
-  if (kind === "grades" || kind === "grade_targets") {
+  if (kind === "grades") {
     const subjects = demoSubjectsForSem(sem);
     const credits = subjects.reduce((a, s) => a + (s.credit || 0), 0);
     const isFuture = Number(sem) > 13;
@@ -1741,7 +1723,7 @@ function demoApi(path, method, body) {
       "17": "09.2028 – 01.2029", "18": "02.2029 – 06.2029",
     };
     const perf = { semester: sem, semester_no: semNo(sem), period: periodMap[sem] || "", subjects, credits, avg_pct: avgPct, gpa_calc: gpaCalc };
-    return wait({ semesters: sems, perf, targets: { semester_no: semNo(sem), credits, gpa_calc: gpaCalc, subjects: buildTargetsFromPerf(perf) } });
+    return wait({ semesters: sems, perf });
   }
   if (kind === "tasks") {
     const t = (id, title, subject, n, hh, extra) => ({ id, title, subject, description: "Решите задачи по инструментальным переменным (2SLS) и прикрепите отчёт в формате .docx или .pdf.", kind: "Задание", lesson_type: "Практика", teacher: "Akramova N. M.", max_ball: 10, mark: null, graded: false, overdue: n < 0, status: "", deadline: `${d(n)} ${hh}`, deadline_left: "", attempts: "0/3", files: [{ name: "iv_2sls_tasks.pdf", size: 245000, ext: "pdf" }], my_files: [], sent_at: null, teacher_comment: "", ...extra });
@@ -1776,4 +1758,4 @@ function demoApi(path, method, body) {
   return wait({});
 }
 
-if (typeof module !== "undefined") module.exports = { nowTk, lessonState, hhmm, lessonCard, mondayOf, normalizeSemesters, renderSchedule, renderNb, renderExams, renderGrades, renderMoney, renderVaultGate, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, forecast, esc, pathFor, minutesLeft, leftLabel, heroFor };
+if (typeof module !== "undefined") module.exports = { nowTk, lessonState, hhmm, lessonCard, mondayOf, normalizeSemesters, renderSchedule, renderNb, renderExams, renderGrades, renderMoney, renderVaultGate, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, esc, pathFor, minutesLeft, leftLabel, heroFor };
