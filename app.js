@@ -749,6 +749,7 @@ const BOT_TOGGLE_META = [
   ["bot_briefing_on", "Утренний ИИ-брифинг Джарвиса", "План дня, задачи, погода и приоритеты"],
   ["bot_finance_on", "Вечерний итог дня и финансы", "Вечером: дела, расходы за день и остатки"],
   ["bot_subs_on", "Подписки и возврат долгов", "Утром в день списания подписки и за день до срока долга"],
+  ["bot_model_footer", "Подпись «какая ИИ ответила»", "Под ответом Джарвиса — название модели, которая выполнила запрос"],
 ];
 
 const HEMIS_TOGGLE_META = [
@@ -822,12 +823,12 @@ function renderSettings(d) {
   }
 
   // Ветвь «HEMIS»
-  const warn = d && d.auth_failed ? `<div class="card notice"><span class="menu-ico tone-bad">${ico("bell")}</span><div><b>HEMIS не принял пароль</b><div class="muted small">Введите его заново в боте: Меню → Helper → «Войти».</div></div></div>` : "";
+  const warn = d && d.auth_failed ? `<div class="card notice"><span class="menu-ico tone-bad">${ico("bell")}</span><div><b>HEMIS не принял пароль</b><div class="muted small">Введите его заново в боте: Меню → Hemis → «Войти».</div></div></div>` : "";
   const last = d && d.last_ok_at ? `<p class="muted small" style="text-align:center;margin:4px 0 0">Последняя синхронизация с HEMIS: ${esc(String(d.last_ok_at).replace("T", " ").slice(0, 16))}</p>` : "";
 
   const hemisTimeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «Helper»</div>
     <div class="card notif-block">
-      ${renderFreqRow("Опрос HEMIS по расписанию (Ташкент)", "Стучимся в HEMIS каждые 20 минут только в промежутке 05:40 – 23:00", "hemis_poll_freq", prefs.hemis_poll_freq, [
+      ${renderFreqRow("Опрос HEMIS по расписанию (Ташкент)", "Как часто бот проверяет HEMIS (только с 05:40 до 23:00 по Ташкенту)", "hemis_poll_freq", prefs.hemis_poll_freq, [
         ["20m_540_2300", "Каждые 20 мин (05:40 – 23:00)"],
         ["15m", "Каждые 15 мин"],
         ["30m", "Каждые 30 мин"],
@@ -911,7 +912,7 @@ const RENDER = {
 
 function errorView(e) {
   const kinds = {
-    not_connected: ["🔌", "HEMIS не подключён", "Откройте бота: Меню → Helper → «Войти»."],
+    not_connected: ["🔌", "HEMIS не подключён", "Откройте бота: Меню → Hemis → «Войти»."],
     unauthorized: ["🔒", "Нет доступа", "Откройте приложение кнопкой из бота — данные видит только владелец."],
     network: ["📡", "Нет связи с ботом", "Проверьте интернет. Если бот на бесплатном Render, он мог заснуть — повторите через 30 секунд."],
     noapi: ["🧭", "Не указан адрес бота", "Откройте приложение кнопкой из бота или задайте API_URL в config.js."],
@@ -1433,11 +1434,15 @@ if (typeof document !== "undefined") {
     if (!el) return;
     const key = el.dataset.key, val = el.value;
     if (!key || !val) return;
-    saveNotifPref(key, val);
-    repaint(null);
     try {
       await post("settings", { pref_key: key, pref_value: val });
-    } catch (e) { /* сохранён локально */ }
+    } catch (e) {
+      toast((e && e.message) || "Не удалось сохранить — бот не получил время");
+      haptic("error");
+      return;
+    }
+    saveNotifPref(key, val);
+    repaint(null);
     toast(`Время обновлено: ${val} ⏰`);
     haptic("success");
   });
@@ -1509,6 +1514,7 @@ const demoToggleState = {
   bot_briefing_on: true,
   bot_finance_on: true,
   bot_subs_on: true,
+  bot_model_footer: true,
   // Ветвь «HEMIS»
   morning_on: true,
   lesson_alert_on: true,
