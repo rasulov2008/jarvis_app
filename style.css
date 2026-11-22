@@ -1067,3 +1067,16 @@ main.enter-prev { animation: enter-prev 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
   .acc-grid-3 { grid-template-columns: 1fr 1fr; }
   .opt-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- Правки UI v4: кнопки замка в ряд, чек рядом с датой, компактная карточка ---------- */
+.vault-head-row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.vault-btns { display: inline-flex; align-items: center; gap: 5px; flex-wrap: nowrap; flex-shrink: 0; }
+.tx-meta-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.rc-inline { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 600; border: 1px solid var(--line); background: var(--card-2); }
+.rc-inline.ok { color: var(--ok); border-color: rgba(16, 185, 129, 0.4); }
+.rc-inline.pending { color: var(--warn, #f59e0b); border-color: rgba(245, 158, 11, 0.4); }
+.compact-sheet { max-width: 390px; padding: 16px; border-radius: 18px; }
+.detail-kv { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 13px; }
+.detail-receipts { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.detail-rc-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; }
+.detail-rc-row + .detail-rc-row { border-top: 1px solid var(--line); }

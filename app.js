@@ -104,7 +104,9 @@ const S = {
   showStorno: false,     // Показывать сторнированные и сторно-проводки
   editTxId: null,        // Проводка в режиме исправления (сторно + новая)
   debtPayId: null,       // Долг в режиме возврата (полного/частичного)
-  receiptModal: null,    // Открытое превью чека из очереди PostgreSQL
+  detailTxId: null,      // Компактная карточка подробностей проводки по тапу
+  pickingFile: false,    // Защита от автоблокировки PIN при открытии системного выбора файла
+  receiptModal: null,    // Открытое превью чека
   moneyUnlocked: false,  // Защита вкладки Финансы (BiometricManager + PIN)
   pinBuffer: "",
   pinSetupMode: false,   // Режим смены PIN-кода
@@ -518,11 +520,13 @@ function renderMoney(d) {
   html += `<div class="card hero-card">
     <div class="between" style="align-items:flex-start">
       <div>
-        <div class="row" style="gap:6px;flex-wrap:wrap">
+        <div class="vault-head-row">
           <span class="muted small">Чистый капитал</span>
-          <button class="chip" data-a="hidebal" title="Скрыть или показать суммы">${ico(S.hideBalances ? "eyeOff" : "eye")}</button>
-          <button class="chip" data-a="pinsetup" title="Сменить PIN-код" aria-label="Сменить PIN-код">🔑</button>
-          <button class="chip tone-warn" data-a="lockmoney" title="Заблокировать Финансы">${ico("lock")}</button>
+          <div class="vault-btns">
+            <button class="chip" data-a="hidebal" title="Скрыть или показать суммы">${ico(S.hideBalances ? "eyeOff" : "eye")}</button>
+            <button class="chip" data-a="pinsetup" title="Сменить PIN-код" aria-label="Сменить PIN-код">🔑</button>
+            <button class="chip tone-warn" data-a="lockmoney" title="Заблокировать Финансы">${ico("lock")}</button>
+          </div>
         </div>
         <div style="font-size:25px;font-weight:800;letter-spacing:-0.02em;margin-top:4px">${fmtMoney(netWorth)} <span class="small muted">сум</span></div>
         <div class="row tiny muted" style="gap:8px;margin-top:4px;flex-wrap:wrap">
@@ -574,6 +578,10 @@ function renderMoney(d) {
     html += renderJournalTab(recent, accounts);
   }
 
+  if (S.detailTxId) {
+    const detTx = recent.find((t) => t.id === S.detailTxId);
+    if (detTx) html += renderTxDetailModal(detTx);
+  }
   if (S.receiptModal) {
     html += renderReceiptModal(S.receiptModal);
   }
@@ -747,18 +755,17 @@ function renderJournalTab(recent, accounts) {
 
     return `<div class="tx-block ${isRev ? "tx-rev" : ""}">
       <div class="tx-row">
-        <div class="tx-ico">${icoChar}</div>
-        <div class="grow" style="min-width:0">
+        <div class="tx-ico" data-a="txdetail" data-id="${tx.id}" style="cursor:pointer">${icoChar}</div>
+        <div class="grow tx-tap" data-a="txdetail" data-id="${tx.id}" style="min-width:0;cursor:pointer">
           <div class="name" style="font-size:14.5px;${isRev ? "text-decoration:line-through;opacity:0.65" : ""}">${esc(title)}</div>
-          ${tx.posting ? `<div class="posting-tag">${esc(tx.posting)} · #${tx.id}</div>` : ""}
-          <div class="muted tiny">${dm(tx.created_at)}${isRev ? ` · сторно #${tx.reversed_by_id}` : ""}</div>
-          ${receipts.length ? `<div class="receipt-strip">${receipts.map((r) => `
-            <button class="receipt-pill ${r.status === "uploaded" ? "ok" : "pending"}" data-a="openreceipt" data-id="${r.id}" data-url="${esc(r.gdrive_url || "")}">
-              🧾 ${r.status === "uploaded" ? "☁️ Диск" : (r.status === "failed" ? "⚠️ Ошибка" : "⏳ Очередь")}
-            </button>`).join("")}</div>` : ""}
+          ${tx.posting ? `<div class="posting-tag">${esc(tx.posting)}</div>` : ""}
+          <div class="tx-meta-line muted tiny">
+            <span>${dm(tx.created_at)} · <b>#${tx.id}</b>${isRev ? ` · сторно #${tx.reversed_by_id}` : ""}</span>
+            ${receipts.length ? `<span class="rc-inline ${receipts.some((r) => r.status === "uploaded") ? "ok" : "pending"}">🧾 Чек${receipts.length > 1 ? ` (${receipts.length})` : ""}</span>` : ""}
+          </div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div class="tx-amt ${isStorno ? "" : (isInc ? "inc" : "exp")}">${sign}${fmtMoney(tx.amount)}</div>
+          <div class="tx-amt ${isStorno ? "" : (isInc ? "inc" : "exp")}" data-a="txdetail" data-id="${tx.id}" style="cursor:pointer">${sign}${fmtMoney(tx.amount)}</div>
           ${!isStorno ? `<div class="tx-actions">
             <button class="chip xs" data-a="attachreceipt" data-id="${tx.id}" title="Прикрепить чек">📎</button>
             ${canEdit ? `<button class="chip xs" data-a="txedit" data-id="${tx.id}" title="Исправить через сторно">✏️</button>` : ""}
@@ -783,6 +790,54 @@ function renderJournalTab(recent, accounts) {
       </div>` : ""}
     </div>`;
   }).join("")}</div>`;
+}
+
+function renderTxDetailModal(tx) {
+  const isInc = tx.kind === "income" || tx.kind === "opening" || tx.kind === "debt_taken";
+  const isTr = tx.kind === "transfer" || tx.kind === "debt_repay";
+  const isStorno = tx.kind === "storno";
+  const isRev = Boolean(tx.is_reversed);
+  const sign = isStorno ? "↩ " : (isInc ? "+" : isTr ? "⇄ " : "−");
+  const receipts = tx.receipts || [];
+  const title = tx.description || tx.category || (isTr ? `${tx.account} → ${tx.to_account}` : "Проводка");
+
+  return `<div class="modal-backdrop" data-a="closedetail">
+    <div class="modal-card compact-sheet" onclick="event.stopPropagation()">
+      <div class="between" style="margin-bottom:8px">
+        <div class="row" style="gap:6px">
+          <span class="pill">#${tx.id}</span>
+          <span class="muted tiny">${dm(tx.created_at)}</span>
+        </div>
+        <button class="chip xs" data-a="closedetail">✕</button>
+      </div>
+      <div class="name" style="font-size:16px">${esc(title)}</div>
+      <div class="tx-amt ${isStorno ? "" : (isInc ? "inc" : "exp")}" style="font-size:21px;margin:4px 0 8px">${sign}${fmtMoney(tx.amount)} сум</div>
+      ${tx.posting ? `<div class="posting-tag" style="white-space:normal">${esc(tx.posting)}</div>` : ""}
+      <div class="detail-kv">
+        ${tx.category ? `<div><span class="muted">Категория:</span> <b>${esc(tx.category)}</b></div>` : ""}
+        ${tx.account ? `<div><span class="muted">Счёт:</span> <b>${esc(tx.account)}${tx.to_account ? ` → ${esc(tx.to_account)}` : ""}</b></div>` : ""}
+        ${tx.merchant ? `<div><span class="muted">Контрагент:</span> <b>${esc(tx.merchant)}</b></div>` : ""}
+        ${isRev ? `<div style="color:var(--warn,#f59e0b)">Сторнировано проводкой #${tx.reversed_by_id}</div>` : ""}
+      </div>
+      ${receipts.length ? `<div class="detail-receipts">
+        <div class="tiny muted" style="margin-bottom:6px">Прикреплённые чеки (${receipts.length}):</div>
+        ${receipts.map((r) => `<div class="detail-rc-row">
+          <div class="grow" style="min-width:0">
+            <div class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🧾 ${esc(r.filename)}</div>
+            <div class="tiny muted">${r.status === "uploaded" ? "☁️ На Google Диске (Receipts)" : (r.status === "failed" ? "⚠️ Ошибка загрузки" : "⏳ В очереди на Google Диск")}</div>
+          </div>
+          <div class="row" style="gap:5px;flex-shrink:0">
+            <button class="btn tonal sm" data-a="sendreceipt" data-id="${r.id}">📤 В чат</button>
+            <button class="chip xs" data-a="openreceipt" data-id="${r.id}" data-url="${esc(r.gdrive_url || "")}" title="Открыть">👁</button>
+          </div>
+        </div>`).join("")}
+      </div>` : ""}
+      ${!isStorno ? `<div class="row" style="gap:6px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn tonal sm grow" data-a="attachreceipt" data-id="${tx.id}">📎 Прикрепить чек</button>
+        ${!isRev ? `<button class="btn tonal sm" data-a="txvoid" data-id="${tx.id}">↩︎ Сторно</button>` : ""}
+      </div>` : ""}
+    </div>
+  </div>`;
 }
 
 function renderReceiptModal(m) {
@@ -828,7 +883,7 @@ function renderTxForm(accounts) {
     <input class="inp" id="txDesc" type="text" placeholder="${S.txKind === "transfer" ? "Комментарий к переводу" : "Описание / магазин (напр. Корзинка, кофе)"}">
     <label class="file-pick-row">
       <span>📎 Прикрепить чек (фото / PDF, необязательно)</span>
-      <input type="file" id="txReceiptFile" accept="image/*,application/pdf">
+      <input type="file" id="txReceiptFile" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" data-a="armpicker">
     </label>
     <button class="btn ok block" data-a="txsubmit">${ico("check")}Провести операцию</button>
   </div>`;
@@ -838,7 +893,7 @@ function renderTxForm(accounts) {
 async function compressReceiptFile(file) {
   if (!file) return null;
   if (file.type === "application/pdf" || !file.type.startsWith("image/")) {
-    if (file.size > 5 * 1024 * 1024) throw new Error("Файл больше 5 МБ");
+    if (file.size > 15 * 1024 * 1024) throw new Error("Файл больше 15 МБ");
     const dataUrl = await new Promise((res, rej) => {
       const r = new FileReader();
       r.onload = () => res(r.result);
@@ -871,27 +926,41 @@ async function compressReceiptFile(file) {
   return { filename: cleanName, mime_type: "image/jpeg", data_base64: dataUrl };
 }
 
+let _pickGuardTimer = null;
+function armFilePickerGuard() {
+  S.pickingFile = true;
+  clearTimeout(_pickGuardTimer);
+  _pickGuardTimer = setTimeout(() => { S.pickingFile = false; }, 120000);
+}
+function releaseFilePickerGuard() {
+  clearTimeout(_pickGuardTimer);
+  _pickGuardTimer = setTimeout(() => { S.pickingFile = false; }, 1500);
+}
+
 let _receiptTargetEntryId = null;
 function pickReceiptForEntry(entryId) {
   _receiptTargetEntryId = entryId;
+  armFilePickerGuard();
   let inp = document.getElementById("globalReceiptPicker");
   if (!inp) {
     inp = document.createElement("input");
     inp.id = "globalReceiptPicker";
     inp.type = "file";
-    inp.accept = "image/*,application/pdf";
+    inp.accept = "image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt";
     inp.hidden = true;
     document.body.appendChild(inp);
+    inp.addEventListener("cancel", releaseFilePickerGuard);
     inp.addEventListener("change", async () => {
       const file = inp.files && inp.files[0];
       inp.value = "";
+      releaseFilePickerGuard();
       if (!file || !_receiptTargetEntryId) return;
       const eid = _receiptTargetEntryId;
-      toast("Сжимаю и сохраняю чек…");
+      toast("Сохраняю чек в очередь…");
       try {
         const packed = await compressReceiptFile(file);
         await post("money/receipt", { entry_id: eid, ...packed });
-        toast("Чек в очереди на Google Диск ☁️");
+        toast("Чек поставлен в очередь на Google Диск ☁️");
         haptic("success");
         await load({ force: true, anim: "fade" });
       } catch (err) {
@@ -1590,6 +1659,23 @@ if (typeof document !== "undefined") {
       }
     },
     closereceipt: () => { S.receiptModal = null; repaint(null); },
+    txdetail: (el) => { S.detailTxId = Number(el.dataset.id); repaint(null); },
+    closedetail: () => { S.detailTxId = null; repaint(null); },
+    armpicker: () => { armFilePickerGuard(); },
+    sendreceipt: async (el) => {
+      if (el.disabled) return;
+      el.disabled = true;
+      try {
+        await post("money/receipt/send", { id: Number(el.dataset.id) });
+        toast("Чек отправлен в чат 📤");
+        haptic("success");
+      } catch (err) {
+        toast((err && err.message) || "Не удалось отправить чек в чат");
+        haptic("error");
+      } finally {
+        el.disabled = false;
+      }
+    },
     debttoggle: (el) => {
       const id = Number(el.dataset.id);
       S.debtPayId = S.debtPayId === id ? null : id;
@@ -1801,10 +1887,14 @@ if (typeof document !== "undefined") {
   load();
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      // Автоматически запираем Финансы при сворачивании приложения
+      if (S.pickingFile) return; // Не запираем Финансы, пока открыт системный выбор файла чека
       S.moneyUnlocked = false;
       S.pinBuffer = "";
     } else {
+      if (S.pickingFile) {
+        releaseFilePickerGuard();
+        return;
+      }
       load({ anim: null });
     }
   });
