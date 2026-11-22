@@ -1026,3 +1026,44 @@ main.enter-prev { animation: enter-prev 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Двойная запись, аудит, ОСВ и чеки (v3) ---------- */
+.acc-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.acc-grid-3 .acc-card { padding: 11px 10px; }
+.acc-grid-3 .acc-val { font-size: 14.5px; }
+.card-save { background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(5, 150, 105, 0.10)); border-color: rgba(16, 185, 129, 0.35); }
+.sync-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.sync-pill.ok { background: rgba(16, 185, 129, 0.14); color: var(--ok); }
+.sync-pill.pending { background: rgba(245, 158, 11, 0.16); color: var(--warn, #f59e0b); }
+.mtab-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 10px; }
+.mtab-scroll .seg { min-width: max-content; }
+.tx-block + .tx-block { border-top: 1px solid var(--line); }
+.tx-block .tx-row { border-top: none !important; }
+.tx-rev { opacity: 0.72; }
+.posting-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; color: var(--muted); background: var(--card-2); display: inline-block; padding: 2px 6px; border-radius: 6px; margin: 3px 0 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-actions { display: flex; gap: 4px; justify-content: flex-end; margin-top: 5px; }
+.chip.xs { padding: 3px 7px; font-size: 12px; min-height: 26px; }
+.receipt-strip { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.receipt-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--line); background: var(--card-2); color: var(--text); }
+.receipt-pill.ok { border-color: rgba(16, 185, 129, 0.4); color: var(--ok); }
+.receipt-pill.pending { border-color: rgba(245, 158, 11, 0.4); color: var(--warn, #f59e0b); }
+.inline-drawer { margin-top: 8px; padding: 10px; border-radius: 12px; background: var(--card-2); border: 1px solid var(--line); }
+.opt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.opt-item { display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; }
+.opt-item .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+.leak-banner { margin-top: 10px; padding: 9px 11px; border-radius: 11px; background: rgba(245, 158, 11, 0.12); display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; flex-wrap: wrap; }
+.osv-head, .osv-row { display: grid; grid-template-columns: 1.5fr 1fr 0.8fr; gap: 6px; align-items: center; padding: 7px 0; }
+.osv-head { font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); font-weight: 600; }
+.osv-row + .osv-row { border-top: 1px solid var(--line); }
+.osv-code { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+.osv-turn, .osv-bal { text-align: right; }
+.osv-total { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.file-pick-row { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); padding: 8px 10px; border-radius: 11px; border: 1px dashed var(--line); background: var(--card-2); cursor: pointer; }
+.file-pick-row input[type="file"] { font-size: 12px; color: var(--text); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.72); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal-card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 14px; max-height: 85vh; overflow: auto; }
+.receipt-img { width: 100%; border-radius: 12px; display: block; object-fit: contain; max-height: 62vh; }
+@media (max-width: 390px) {
+  .acc-grid-3 { grid-template-columns: 1fr 1fr; }
+  .opt-grid { grid-template-columns: 1fr; }
+}

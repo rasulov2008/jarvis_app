@@ -100,7 +100,11 @@ const S = {
   examTab: null,
   notifBranch: "bot",    // bot | hemis (две ветви уведомлений)
   moneyPeriod: "month",  // today | week | month | year
-  moneyTab: "ops",       // ops | cats | debts | subs
+  moneyTab: "ops",       // ops | opt | osv | debts | subs
+  showStorno: false,     // Показывать сторнированные и сторно-проводки
+  editTxId: null,        // Проводка в режиме исправления (сторно + новая)
+  debtPayId: null,       // Долг в режиме возврата (полного/частичного)
+  receiptModal: null,    // Открытое превью чека из очереди PostgreSQL
   moneyUnlocked: false,  // Защита вкладки Финансы (BiometricManager + PIN)
   pinBuffer: "",
   pinSetupMode: false,   // Режим смены PIN-кода
@@ -239,7 +243,7 @@ function pathFor(id) {
     case "nb": case "exams": case "grades": case "tasks": return `${id}${S.sem[id] ? "?" + semQ(id) : ""}`;
     case "subjects": return `grades${S.sem.subjects ? "?semester=" + S.sem.subjects : ""}`;
     case "resources": return S.res.subject ? `resources?semester=${S.sem.resources}&subject=${S.res.subject}` : `resources${S.sem.resources ? "?" + semQ("resources") : ""}`;
-    case "money": return `money/overview?period=${S.moneyPeriod}`;
+    case "money": return `money/overview?period=${S.moneyPeriod}${S.showStorno ? "&storno=1" : ""}`;
     case "contract": case "settings": return id;
     default: return null;
   }
@@ -487,31 +491,50 @@ function renderMoney(d) {
   const debts = d.debts || [];
   const subs = d.subscriptions || [];
   const recent = d.recent || [];
+  const audit = d.audit || null;
+  const osv = d.osv || null;
+  const rqueue = d.receipt_queue || { pending: 0, uploaded: 0, failed: 0 };
+  const recBal = +(d.balances.receivable || 0);
+  const payBal = +(d.balances.payable || 0);
+  const netWorth = d.balances.net_worth != null ? d.balances.net_worth : d.balances.total;
 
-  let html = `<div class="acc-grid">
-    ${accounts.map((a, idx) => `<div class="acc-card ${idx === 0 ? "card-bank" : "card-cash"}">
+  const accStyles = ["card-bank", "card-cash", "card-save"];
+  const accSubtitles = { "1010": "UZCARD / HUMO", "1020": "CASH UZS", "1030": "СБЕРЕЖЕНИЯ" };
+
+  let html = `<div class="acc-grid ${accounts.length >= 3 ? "acc-grid-3" : ""}">
+    ${accounts.map((a, idx) => `<div class="acc-card ${accStyles[idx % accStyles.length]}">
       <div class="acc-head">
         <span>${esc(a.icon || "💳")} ${esc(a.name)}</span>
-        <span class="tiny">${idx === 0 ? "UZCARD / HUMO" : "CASH UZS"}</span>
+        <span class="tiny">${esc(a.code ? a.code : (accSubtitles[a.code] || "UZS"))}</span>
       </div>
       <div class="acc-val">${fmtMoney(a.balance)} <span class="tiny" style="font-weight:500;opacity:0.8">сум</span></div>
     </div>`).join("")}
   </div>`;
 
+  const syncPill = rqueue.pending > 0
+    ? `<span class="sync-pill pending">⏳ В очереди на Диск: ${rqueue.pending}</span>`
+    : (rqueue.uploaded > 0 ? `<span class="sync-pill ok">☁️ Чеков на Диске: ${rqueue.uploaded}</span>` : "");
+
   html += `<div class="card hero-card">
-    <div class="between">
+    <div class="between" style="align-items:flex-start">
       <div>
-        <div class="row" style="gap:6px">
-          <span class="muted small">Общий капитал</span>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <span class="muted small">Чистый капитал</span>
           <button class="chip" data-a="hidebal" title="Скрыть или показать суммы">${ico(S.hideBalances ? "eyeOff" : "eye")}</button>
           <button class="chip" data-a="pinsetup" title="Сменить PIN-код" aria-label="Сменить PIN-код">🔑</button>
           <button class="chip tone-warn" data-a="lockmoney" title="Заблокировать Финансы">${ico("lock")}</button>
         </div>
-        <div style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin-top:4px">${fmtMoney(d.balances.total)} <span class="small muted">сум</span></div>
+        <div style="font-size:25px;font-weight:800;letter-spacing:-0.02em;margin-top:4px">${fmtMoney(netWorth)} <span class="small muted">сум</span></div>
+        <div class="row tiny muted" style="gap:8px;margin-top:4px;flex-wrap:wrap">
+          <span>Ликвидность: <b>${fmtMoney(d.balances.total)}</b></span>
+          ${recBal > 0 ? `<span style="color:var(--ok)">🟢 +${fmtMoney(recBal)}</span>` : ""}
+          ${payBal > 0 ? `<span style="color:var(--bad)">🔴 −${fmtMoney(payBal)}</span>` : ""}
+        </div>
+        ${syncPill ? `<div style="margin-top:6px">${syncPill}</div>` : ""}
       </div>
       <button class="btn sm" data-a="toggleform">${ico("plus")}${S.txFormOpen ? "Скрыть" : "Записать"}</button>
     </div>
-    ${S.txFormOpen ? renderTxForm() : ""}
+    ${S.txFormOpen ? renderTxForm(accounts) : ""}
   </div>`;
 
   html += seg([["today", "Сегодня"], ["week", "7 дней"], ["month", "Месяц"], ["year", "Год"]], S.moneyPeriod, "mperiod");
@@ -531,19 +554,88 @@ function renderMoney(d) {
     </div>`;
   }
 
-  html += seg([
-    ["ops", "Операции", `${recent.length}`],
-    ["cats", "Категории", `${(summary.expense_by_category || []).length}`],
+  html += `<div class="mtab-scroll">${seg([
+    ["ops", "Журнал", `${recent.length}`],
+    ["opt", "Аудит"],
+    ["osv", "ОСВ"],
     ["debts", "Долги", `${debts.length}`],
     ["subs", "Подписки", `${subs.length}`],
-  ], S.moneyTab, "mtab");
+  ], S.moneyTab, "mtab")}</div>`;
 
-  if (S.moneyTab === "cats") {
-    const cats = summary.expense_by_category || [];
-    const totalExp = Math.max(1, +(summary.expense || 0));
-    if (!cats.length) return html + empty("📊", "За этот период трат нет", "Добавьте расход кнопкой «Записать» выше.");
+  if (S.moneyTab === "opt") {
+    html += renderOptimizationTab(audit, summary);
+  } else if (S.moneyTab === "osv") {
+    html += renderOsvTab(osv);
+  } else if (S.moneyTab === "debts") {
+    html += renderDebtsTab(debts, accounts);
+  } else if (S.moneyTab === "subs") {
+    html += renderSubsTab(subs);
+  } else {
+    html += renderJournalTab(recent, accounts);
+  }
+
+  if (S.receiptModal) {
+    html += renderReceiptModal(S.receiptModal);
+  }
+  return html;
+}
+
+function renderOptimizationTab(audit, summary) {
+  const cats = summary.expense_by_category || [];
+  const totalExp = Math.max(1, +(summary.expense || 0));
+  if (!cats.length && (!audit || !audit.total_expense)) {
+    return empty("🔍", "За этот период трат нет", "Добавьте расход кнопкой «Записать» выше.");
+  }
+  let out = "";
+  if (audit && audit.groups) {
+    const gE = audit.groups.essential || { total: 0, share_pct: 0 };
+    const gD = audit.groups.discretionary || { total: 0, share_pct: 0 };
+    const gL = audit.groups.leakage || { total: 0, share_pct: 0 };
+    out += `<div class="card">
+      <div class="between">
+        <b>✂️ Структура трат и оптимизация</b>
+        ${audit.savings_rate_pct != null ? `<span class="pill ${audit.savings_rate_pct >= 15 ? "tone-ok" : "tone-warn"}">Сбережения ${audit.savings_rate_pct > 0 ? "+" : ""}${audit.savings_rate_pct}%</span>` : ""}
+      </div>
+      <div class="stack-bar" style="margin-top:10px">
+        ${gE.share_pct > 0 ? `<i style="width:${gE.share_pct}%;background:#3b82f6"></i>` : ""}
+        ${gD.share_pct > 0 ? `<i style="width:${gD.share_pct}%;background:#f59e0b"></i>` : ""}
+        ${gL.share_pct > 0 ? `<i style="width:${gL.share_pct}%;background:#ef4444"></i>` : ""}
+      </div>
+      <div class="opt-grid">
+        <div class="opt-item"><span class="dot" style="background:#3b82f6"></span><div><div class="tiny muted">Обязательные</div><b>${fmtMoney(gE.total)}</b> <span class="tiny muted">${Math.round(gE.share_pct)}%</span></div></div>
+        <div class="opt-item"><span class="dot" style="background:#f59e0b"></span><div><div class="tiny muted">Гибкие (экономия)</div><b>${fmtMoney(gD.total)}</b> <span class="tiny muted">${Math.round(gD.share_pct)}%</span></div></div>
+        <div class="opt-item"><span class="dot" style="background:#ef4444"></span><div><div class="tiny muted">Утечки (сверка)</div><b>${fmtMoney(gL.total)}</b> <span class="tiny muted">${Math.round(gL.share_pct)}%</span></div></div>
+      </div>
+      ${audit.small_tickets && audit.small_tickets.count > 0 ? `<div class="leak-banner">
+        ☕ <span>Мелкие чеки до ${fmtMoney(audit.small_tickets.threshold_uzs)} сум:</span>
+        <b>${fmtMoney(audit.small_tickets.total)} сум (${audit.small_tickets.count} шт.)</b>
+      </div>` : ""}
+    </div>`;
+
+    if (audit.anomalies && audit.anomalies.length) {
+      out += `<div class="card">
+        <div class="name" style="margin-bottom:8px">⚠️ Рост к среднему за 3 месяца</div>
+        ${audit.anomalies.map((an) => `<div class="between small" style="padding:5px 0;border-top:1px solid var(--line)">
+          <span>${CAT_ICONS[an.category] || "📦"} <b>${esc(an.category)}</b></span>
+          <span>${fmtMoney(an.spent)} <span class="pill tone-bad">+${Math.round(an.growth_pct)}%</span></span>
+        </div>`).join("")}
+      </div>`;
+    }
+
+    if (audit.top_merchants && audit.top_merchants.length) {
+      out += `<div class="card">
+        <div class="name" style="margin-bottom:8px">🏪 Топ точек, куда уходят деньги</div>
+        ${audit.top_merchants.slice(0, 6).map((m) => `<div class="between small" style="padding:6px 0;border-top:1px solid var(--line)">
+          <div><b>${esc(m.label)}</b><div class="tiny muted">${m.count} чек(ов) · ср. ${fmtMoney(m.avg_check)}</div></div>
+          <b>${fmtMoney(m.total)} сум</b>
+        </div>`).join("")}
+      </div>`;
+    }
+  }
+
+  if (cats.length) {
     const stack = `<div class="stack-bar">${cats.slice(0, 6).map((c, i) => `<i style="width:${Math.max(3, (c[1] / totalExp) * 100).toFixed(1)}%;background:${CAT_COLORS[i % CAT_COLORS.length]}"></i>`).join("")}</div>`;
-    return html + `<div class="card">${stack}${cats.map((c, i) => {
+    out += `<div class="card"><div class="name" style="margin-bottom:8px">📊 Категории расходов</div>${stack}${cats.map((c, i) => {
       const catName = c[0], amt = c[1], cnt = c[2], pct = Math.round((amt / totalExp) * 100);
       return `<div style="margin-top:11px">
         <div class="between small">
@@ -554,68 +646,164 @@ function renderMoney(d) {
       </div>`;
     }).join("")}</div>`;
   }
+  return out;
+}
 
-  if (S.moneyTab === "debts") {
-    if (!debts.length) return html + empty("🤝", "Активных долгов нет", "Никто никому не должен. В чате можно написать: «одолжил Алишеру 100к».");
-    return html + debts.map((db) => {
-      const isGiven = db.direction === "given";
-      return `<div class="card">
-        <div class="between">
-          <div>
-            <span class="pill ${isGiven ? "tone-ok" : "tone-bad"}">${isGiven ? "Мне должны" : "Я должен"}</span>
-            <div class="name" style="margin-top:6px">${esc(db.person)}</div>
-            ${db.description ? `<div class="muted small">${esc(db.description)}</div>` : ""}
-          </div>
-          <div style="text-align:right">
-            <b style="font-size:17px">${fmtMoney(db.amount)} сум</b>
-            ${db.due_date ? `<div class="muted tiny">до ${esc(db.due_date)}</div>` : ""}
-            <div style="margin-top:6px"><button class="btn tonal sm" data-a="debtclose" data-id="${db.id}" data-person="${esc(db.person)}">Закрыть долг</button></div>
-          </div>
-        </div>
-      </div>`;
-    }).join("");
+function renderOsvTab(osv) {
+  if (!osv || !osv.rows || !osv.rows.length) {
+    return empty("📑", "Оборотов за период нет", "После первых проводок здесь появится оборотно-сальдовая ведомость.");
   }
+  const rows = osv.rows.filter((r) => r.debit_turn || r.credit_turn || r.closing_bal);
+  return `<div class="card">
+    <div class="between" style="margin-bottom:10px">
+      <b>📑 Оборотно-сальдовая (ОСВ)</b>
+      <span class="pill ${osv.balanced ? "tone-ok" : "tone-bad"}">${osv.balanced ? "Дт = Кт ✅" : "Расхождение ⚠️"}</span>
+    </div>
+    <div class="osv-head"><span>Счёт</span><span>Оборот Дт / Кт</span><span>Сальдо</span></div>
+    ${rows.map((r) => `<div class="osv-row">
+      <div class="osv-acc"><span class="osv-code">${esc(r.code)}</span> ${esc(r.icon || "")} <b>${esc(r.name)}</b></div>
+      <div class="osv-turn tiny"><span style="color:var(--ok)">Дт ${fmtMoney(r.debit_turn)}</span><br><span style="color:var(--bad)">Кт ${fmtMoney(r.credit_turn)}</span></div>
+      <div class="osv-bal"><b>${fmtMoney(r.closing_bal)}</b></div>
+    </div>`).join("")}
+    <div class="osv-total between small">
+      <span>Итого обороты:</span>
+      <b>Дт ${fmtMoney(osv.total_debit)} = Кт ${fmtMoney(osv.total_credit)}</b>
+    </div>
+  </div>`;
+}
 
-  if (S.moneyTab === "subs") {
-    if (!subs.length) return html + empty("🔁", "Подписок пока нет", "Регулярные списания (интернет, связь, сервисы) появятся здесь.");
-    return html + subs.map((s) => `<div class="card">
+function renderDebtsTab(debts, accounts) {
+  if (!debts.length) return empty("🤝", "Активных долгов нет", "Никто никому не должен. В чате можно написать: «одолжил Алишеру 100к с карты».");
+  const accList = accounts.length ? accounts : [{ name: "карта", icon: "💳" }, { name: "наличные", icon: "💵" }];
+  return debts.map((db) => {
+    const isGiven = db.direction === "given";
+    const isOpen = S.debtPayId === db.id;
+    return `<div class="card">
       <div class="between">
         <div>
-          <div class="name">${esc(s.title)}</div>
-          <div class="muted small">Каждое <b>${s.billing_day}</b>-е число · ${esc(s.category)}</div>
+          <span class="pill ${isGiven ? "tone-ok" : "tone-bad"}">${isGiven ? "1200 · Мне должны" : "2010 · Я должен"}</span>
+          <div class="name" style="margin-top:6px">${esc(db.person)}</div>
+          ${db.description ? `<div class="muted small">${esc(db.description)}</div>` : ""}
         </div>
         <div style="text-align:right">
-          <b>${fmtMoney(s.amount)} ${esc(s.currency)}</b>
+          <b style="font-size:17px">${fmtMoney(db.amount)} сум</b>
+          ${db.due_date ? `<div class="muted tiny">до ${esc(db.due_date)}</div>` : ""}
           <div style="margin-top:6px">
-            <button class="btn tonal sm" data-a="subpay" data-id="${s.id}" data-title="${esc(s.title)}" data-amount="${s.amount}" data-cur="${esc(s.currency)}" data-cat="${esc(s.category)}">Списать</button>
+            <button class="btn tonal sm" data-a="debttoggle" data-id="${db.id}">${isOpen ? "Скрыть" : "Возврат"}</button>
           </div>
         </div>
       </div>
-    </div>`).join("");
-  }
+      ${isOpen ? `<div class="inline-drawer">
+        <div class="form-row">
+          <input class="inp" id="debtAmt_${db.id}" type="number" inputmode="decimal" value="${Math.round(+db.amount)}" placeholder="Сумма возврата">
+          <select class="sel" id="debtAcc_${db.id}">
+            ${accList.map((a) => `<option value="${esc(a.name)}">${esc(a.icon || "💳")} ${esc(a.name)}</option>`).join("")}
+          </select>
+        </div>
+        <button class="btn ok sm block" style="margin-top:8px" data-a="debtclose" data-id="${db.id}" data-person="${esc(db.person)}">Провести возврат</button>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+}
 
-  if (!recent.length) return html + empty("🧾", "Операций пока нет", "Нажмите «Записать», чтобы внести первую трату или доход.");
-  return html + `<div class="card">${recent.map((tx) => {
-    const isInc = tx.kind === "income" || tx.kind === "opening";
-    const isTr = tx.kind === "transfer";
-    const sign = isInc ? "+" : isTr ? "⇄ " : "−";
-    const icoChar = isTr ? "🔁" : (CAT_ICONS[tx.category] || "💳");
-    const title = tx.description || tx.category || (isTr ? `${tx.account} → ${tx.to_account}` : "Операция");
-    const sub = `${tx.category ? tx.category + " · " : ""}${tx.account || "карта"} · ${dm(tx.created_at)}`;
-    return `<div class="tx-row">
-      <div class="tx-ico">${icoChar}</div>
-      <div class="grow">
-        <div class="name" style="font-size:14.5px">${esc(title)}</div>
-        <div class="muted tiny">${esc(sub)}</div>
+function renderSubsTab(subs) {
+  if (!subs.length) return empty("🔁", "Подписок пока нет", "Регулярные списания (интернет, связь, сервисы) появятся здесь.");
+  return subs.map((s) => `<div class="card">
+    <div class="between">
+      <div>
+        <div class="name">${esc(s.title)}</div>
+        <div class="muted small">Каждое <b>${s.billing_day}</b>-е число · ${esc(s.category)}</div>
       </div>
-      <div class="tx-amt ${isInc ? "inc" : "exp"}">${sign}${fmtMoney(tx.amount)}</div>
-      ${tx.id ? `<button class="chip" data-a="txvoid" data-id="${tx.id}" title="Отменить операцию" aria-label="Отменить операцию">↩︎</button>` : ""}
+      <div style="text-align:right">
+        <b>${fmtMoney(s.amount)} ${esc(s.currency)}</b>
+        <div style="margin-top:6px">
+          <button class="btn tonal sm" data-a="subpay" data-id="${s.id}" data-title="${esc(s.title)}" data-amount="${s.amount}" data-cur="${esc(s.currency)}" data-cat="${esc(s.category)}">Списать</button>
+        </div>
+      </div>
+    </div>
+  </div>`).join("");
+}
+
+function renderJournalTab(recent, accounts) {
+  const toggleBar = `<div class="between" style="margin:2px 2px 8px">
+    <span class="muted tiny">Иммутабельный журнал (Дт = Кт)</span>
+    <button class="chip ${S.showStorno ? "tone-warn" : ""}" data-a="togglestorno">${S.showStorno ? "👁 Скрыть сторно" : "↩︎ Показать сторно"}</button>
+  </div>`;
+  if (!recent.length) return toggleBar + empty("🧾", "Проводок пока нет", "Нажмите «Записать», чтобы внести первую операцию.");
+  const accList = accounts.length ? accounts : [{ name: "карта", icon: "💳" }, { name: "наличные", icon: "💵" }, { name: "копилка", icon: "🏦" }];
+
+  return toggleBar + `<div class="card">${recent.map((tx) => {
+    const isInc = tx.kind === "income" || tx.kind === "opening" || tx.kind === "debt_taken";
+    const isTr = tx.kind === "transfer" || tx.kind === "debt_repay";
+    const isStorno = tx.kind === "storno";
+    const isRev = Boolean(tx.is_reversed);
+    const sign = isStorno ? "↩ " : (isInc ? "+" : isTr ? "⇄ " : "−");
+    const icoChar = isStorno ? "↩️" : (isTr ? "🔁" : (CAT_ICONS[tx.category] || "💳"));
+    const title = tx.description || tx.category || (isTr ? `${tx.account} → ${tx.to_account}` : "Проводка");
+    const receipts = tx.receipts || [];
+    const canEdit = !isRev && !isStorno && (tx.kind === "expense" || tx.kind === "income") && tx.entry_type !== "split";
+    const isEditing = S.editTxId === tx.id;
+    const cats = tx.kind === "income" ? INC_CATS : EXP_CATS;
+
+    return `<div class="tx-block ${isRev ? "tx-rev" : ""}">
+      <div class="tx-row">
+        <div class="tx-ico">${icoChar}</div>
+        <div class="grow" style="min-width:0">
+          <div class="name" style="font-size:14.5px;${isRev ? "text-decoration:line-through;opacity:0.65" : ""}">${esc(title)}</div>
+          ${tx.posting ? `<div class="posting-tag">${esc(tx.posting)} · #${tx.id}</div>` : ""}
+          <div class="muted tiny">${dm(tx.created_at)}${isRev ? ` · сторно #${tx.reversed_by_id}` : ""}</div>
+          ${receipts.length ? `<div class="receipt-strip">${receipts.map((r) => `
+            <button class="receipt-pill ${r.status === "uploaded" ? "ok" : "pending"}" data-a="openreceipt" data-id="${r.id}" data-url="${esc(r.gdrive_url || "")}">
+              🧾 ${r.status === "uploaded" ? "☁️ Диск" : (r.status === "failed" ? "⚠️ Ошибка" : "⏳ Очередь")}
+            </button>`).join("")}</div>` : ""}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div class="tx-amt ${isStorno ? "" : (isInc ? "inc" : "exp")}">${sign}${fmtMoney(tx.amount)}</div>
+          ${!isStorno ? `<div class="tx-actions">
+            <button class="chip xs" data-a="attachreceipt" data-id="${tx.id}" title="Прикрепить чек">📎</button>
+            ${canEdit ? `<button class="chip xs" data-a="txedit" data-id="${tx.id}" title="Исправить через сторно">✏️</button>` : ""}
+            ${!isRev ? `<button class="chip xs" data-a="txvoid" data-id="${tx.id}" title="Сторнировать проводку">↩︎</button>` : ""}
+          </div>` : ""}
+        </div>
+      </div>
+      ${isEditing ? `<div class="inline-drawer">
+        <div class="tiny muted" style="margin-bottom:6px">Исправление создаст обратное сторно #${tx.id} и новую проводку:</div>
+        <div class="form-row">
+          <select class="sel" id="editCat_${tx.id}">
+            ${cats.map((c) => `<option value="${esc(c)}" ${c === tx.category ? "selected" : ""}>${CAT_ICONS[c] || "📦"} ${esc(c)}</option>`).join("")}
+          </select>
+          <select class="sel" id="editAcc_${tx.id}">
+            ${accList.map((a) => `<option value="${esc(a.name)}" ${a.name === tx.account ? "selected" : ""}>${esc(a.icon || "💳")} ${esc(a.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="row" style="gap:8px;margin-top:8px">
+          <button class="btn ok sm grow" data-a="txcorrect" data-id="${tx.id}">Сохранить (Сторно + Новая)</button>
+          <button class="btn tonal sm" data-a="txedit" data-id="${tx.id}">Отмена</button>
+        </div>
+      </div>` : ""}
     </div>`;
   }).join("")}</div>`;
 }
 
-function renderTxForm() {
+function renderReceiptModal(m) {
+  const isPdf = (m.mime_type || "").includes("pdf");
+  return `<div class="modal-backdrop" data-a="closereceipt">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="between" style="margin-bottom:10px">
+        <b class="small">${esc(m.filename || "Чек")}</b>
+        <button class="chip" data-a="closereceipt">✕</button>
+      </div>
+      ${m.data_url && !isPdf ? `<img class="receipt-img" src="${m.data_url}" alt="Чек">` : `<div class="muted small" style="padding:18px 0;text-align:center">${isPdf ? "PDF-чек находится в очереди синхронизации с Google Диском." : "Превью недоступно."}</div>`}
+      <div class="muted tiny" style="margin-top:8px;text-align:center">⏳ Чек сохранён в базе и скоро уйдёт в папку «Чеки» на Google Диске.</div>
+    </div>
+  </div>`;
+}
+
+function renderTxForm(accounts) {
   const cats = S.txKind === "income" ? INC_CATS : EXP_CATS;
+  const accList = (accounts && accounts.length) ? accounts : [
+    { name: "карта", icon: "💳" }, { name: "наличные", icon: "💵" }, { name: "копилка", icon: "🏦" }
+  ];
   return `<div class="detail tx-form">
     ${seg([["expense", "➖ Расход"], ["income", "➕ Доход"], ["transfer", "🔁 Перевод"]], S.txKind, "txkind")}
     <div class="form-row">
@@ -628,17 +816,91 @@ function renderTxForm() {
       </select>
     </div>
     <div class="form-row">
-      <select class="sel" id="txCategory" aria-label="Категория" ${S.txKind === "transfer" ? "disabled" : ""}>
+      ${S.txKind === "transfer" ? `<select class="sel" id="txToAccount" aria-label="Куда">
+        ${accList.map((a, i) => `<option value="${esc(a.name)}" ${i === 1 ? "selected" : ""}>→ ${esc(a.icon || "💵")} ${esc(a.name)}</option>`).join("")}
+      </select>` : `<select class="sel" id="txCategory" aria-label="Категория">
         ${cats.map((c) => `<option value="${esc(c)}">${CAT_ICONS[c] || "📦"} ${esc(c)}</option>`).join("")}
-      </select>
+      </select>`}
       <select class="sel" id="txAccount" aria-label="Счёт">
-        <option value="карта">💳 Карта</option>
-        <option value="наличные">💵 Нал</option>
+        ${accList.map((a) => `<option value="${esc(a.name)}">${esc(a.icon || "💳")} ${esc(a.name)}</option>`).join("")}
       </select>
     </div>
-    <input class="inp" id="txDesc" type="text" placeholder="${S.txKind === "transfer" ? "Перевод на второй счёт" : "Описание (напр. Корзинка, кофе)"}">
-    <button class="btn ok block" data-a="txsubmit">${ico("check")}Сохранить операцию</button>
+    <input class="inp" id="txDesc" type="text" placeholder="${S.txKind === "transfer" ? "Комментарий к переводу" : "Описание / магазин (напр. Корзинка, кофе)"}">
+    <label class="file-pick-row">
+      <span>📎 Прикрепить чек (фото / PDF, необязательно)</span>
+      <input type="file" id="txReceiptFile" accept="image/*,application/pdf">
+    </label>
+    <button class="btn ok block" data-a="txsubmit">${ico("check")}Провести операцию</button>
   </div>`;
+}
+
+// Клиентское сжатие фото чека (<= 1400px JPEG q=0.82) для быстрой загрузки и экономии места
+async function compressReceiptFile(file) {
+  if (!file) return null;
+  if (file.type === "application/pdf" || !file.type.startsWith("image/")) {
+    if (file.size > 5 * 1024 * 1024) throw new Error("Файл больше 5 МБ");
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(new Error("Не удалось прочитать файл"));
+      r.readAsDataURL(file);
+    });
+    return { filename: file.name || "receipt.pdf", mime_type: file.type || "application/pdf", data_base64: dataUrl };
+  }
+  const bmp = await new Promise((res, rej) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); res(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("Не удалось открыть фото")); };
+    img.src = url;
+  });
+  const maxSide = 1400;
+  let w = bmp.naturalWidth || bmp.width, h = bmp.naturalHeight || bmp.height;
+  if (w > maxSide || h > maxSide) {
+    const k = maxSide / Math.max(w, h);
+    w = Math.round(w * k);
+    h = Math.round(h * k);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bmp, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+  const cleanName = (file.name || "receipt.jpg").replace(/\.[^.]+$/, "") + ".jpg";
+  return { filename: cleanName, mime_type: "image/jpeg", data_base64: dataUrl };
+}
+
+let _receiptTargetEntryId = null;
+function pickReceiptForEntry(entryId) {
+  _receiptTargetEntryId = entryId;
+  let inp = document.getElementById("globalReceiptPicker");
+  if (!inp) {
+    inp = document.createElement("input");
+    inp.id = "globalReceiptPicker";
+    inp.type = "file";
+    inp.accept = "image/*,application/pdf";
+    inp.hidden = true;
+    document.body.appendChild(inp);
+    inp.addEventListener("change", async () => {
+      const file = inp.files && inp.files[0];
+      inp.value = "";
+      if (!file || !_receiptTargetEntryId) return;
+      const eid = _receiptTargetEntryId;
+      toast("Сжимаю и сохраняю чек…");
+      try {
+        const packed = await compressReceiptFile(file);
+        await post("money/receipt", { entry_id: eid, ...packed });
+        toast("Чек в очереди на Google Диск ☁️");
+        haptic("success");
+        await load({ force: true, anim: "fade" });
+      } catch (err) {
+        toast((err && err.message) || "Не удалось загрузить чек");
+        haptic("error");
+      }
+    });
+  }
+  inp.click();
 }
 
 // ---------------------------------------------------------------- «Ещё» и подразделы
@@ -1279,8 +1541,62 @@ if (typeof document !== "undefined") {
     mtab: (el) => { S.moneyTab = el.dataset.k; repaint("fade"); },
     toggleform: () => { S.txFormOpen = !S.txFormOpen; repaint("fade"); },
     txkind: (el) => { S.txKind = el.dataset.k; repaint(null); },
+    togglestorno: () => { S.showStorno = !S.showStorno; load({ force: true, anim: "fade" }); },
+    txedit: (el) => {
+      const id = Number(el.dataset.id);
+      S.editTxId = S.editTxId === id ? null : id;
+      repaint(null);
+    },
+    txcorrect: async (el) => {
+      const id = Number(el.dataset.id);
+      const catEl = $(`editCat_${id}`), accEl = $(`editAcc_${id}`);
+      el.disabled = true;
+      try {
+        await post("money/tx/correct", {
+          id,
+          category: catEl ? catEl.value : null,
+          account: accEl ? accEl.value : null,
+        });
+        S.editTxId = null;
+        toast("Исправлено через сторно ✅");
+        haptic("success");
+        await load({ force: true, anim: "fade" });
+      } catch (err) {
+        toast((err && err.message) || "Не удалось исправить проводку");
+        haptic("error");
+      } finally {
+        el.disabled = false;
+      }
+    },
+    attachreceipt: (el) => { pickReceiptForEntry(Number(el.dataset.id)); },
+    openreceipt: async (el) => {
+      const url = el.dataset.url;
+      if (url) {
+        if (tg && tg.openLink) tg.openLink(url);
+        else window.open(url, "_blank");
+        return;
+      }
+      try {
+        const rec = await api(`money/receipt/${Number(el.dataset.id)}`, true);
+        if (rec && rec.gdrive_url) {
+          if (tg && tg.openLink) tg.openLink(rec.gdrive_url);
+          else window.open(rec.gdrive_url, "_blank");
+        } else if (rec) {
+          S.receiptModal = rec;
+          repaint(null);
+        }
+      } catch (err) {
+        toast("Не удалось открыть чек");
+      }
+    },
+    closereceipt: () => { S.receiptModal = null; repaint(null); },
+    debttoggle: (el) => {
+      const id = Number(el.dataset.id);
+      S.debtPayId = S.debtPayId === id ? null : id;
+      repaint(null);
+    },
     txsubmit: async (el) => {
-      const amtEl = $("txAmount"), curEl = $("txCurrency"), catEl = $("txCategory"), accEl = $("txAccount"), descEl = $("txDesc");
+      const amtEl = $("txAmount"), curEl = $("txCurrency"), catEl = $("txCategory"), accEl = $("txAccount"), toAccEl = $("txToAccount"), descEl = $("txDesc"), fileEl = $("txReceiptFile");
       const amount = parseFloat(amtEl && amtEl.value);
       if (!amount || amount <= 0) { toast("Введите сумму больше нуля"); return; }
       const payload = {
@@ -1289,13 +1605,19 @@ if (typeof document !== "undefined") {
         currency: curEl ? curEl.value : "UZS",
         category: S.txKind === "transfer" ? null : (catEl ? catEl.value : "другое"),
         account: accEl ? accEl.value : "карта",
+        to_account: S.txKind === "transfer" && toAccEl ? toAccEl.value : null,
         description: descEl ? descEl.value.trim() : "",
       };
       el.disabled = true;
       try {
-        await post("money/tx", payload);
+        const res = await post("money/tx", payload);
+        const file = fileEl && fileEl.files && fileEl.files[0];
+        if (file && res && res.tx && res.tx.id) {
+          const packed = await compressReceiptFile(file);
+          await post("money/receipt", { entry_id: res.tx.id, ...packed });
+        }
         S.txFormOpen = false;
-        toast("Операция сохранена ✅");
+        toast(file ? "Проводка и чек сохранены ✅" : "Проводка проведена ✅");
         haptic("success");
         await load({ force: true, anim: "fade" });
       } catch (err) {
@@ -1307,14 +1629,19 @@ if (typeof document !== "undefined") {
     },
     debtclose: async (el) => {
       if (el.disabled) return;
+      const id = Number(el.dataset.id);
+      const amtEl = $(`debtAmt_${id}`), accEl = $(`debtAcc_${id}`);
+      const amount = amtEl ? parseFloat(amtEl.value) : 0;
+      const account = accEl ? accEl.value : "карта";
       el.disabled = true;
       try {
-        await post("money/debt/settle", { id: Number(el.dataset.id) });
-        toast(`Долг «${el.dataset.person}» закрыт ✅`);
+        await post("money/debt/settle", { id, amount: amount > 0 ? amount : null, account });
+        S.debtPayId = null;
+        toast(`Возврат по долгу «${el.dataset.person}» проведён ✅`);
         haptic("success");
         await load({ force: true, anim: "fade" });
       } catch (err) {
-        toast((err && err.message) || "Не удалось закрыть долг");
+        toast((err && err.message) || "Не удалось провести возврат");
       } finally {
         el.disabled = false;
       }
@@ -1324,11 +1651,11 @@ if (typeof document !== "undefined") {
       el.disabled = true;
       try {
         await post("money/tx/void", { id: Number(el.dataset.id) });
-        toast("Операция отменена ↩︎");
+        toast("Сторно проведено ↩︎");
         haptic("success");
         await load({ force: true, anim: "fade" });
       } catch (err) {
-        toast((err && err.message) || "Не удалось отменить операцию");
+        toast((err && err.message) || "Не удалось провести сторно");
       } finally {
         el.disabled = false;
       }
