@@ -1,7 +1,6 @@
-/* Helper · Учёба и Финансы — Telegram Mini App 2.8.
+/* Helper · Учёба — Telegram Mini App.
    - Безрамочный полноэкранный режим (Bot API 8.0 requestFullscreen + disableVerticalSwipes)
-   - Вкладка «Финансы» справа без жёлтой точки, вход через BiometricManager + PIN («Доступ к разделу финансы / Подтвердите вход», иконка 🔑 без текста PIN, без дублирующей кнопки отпечатка)
-   - Быстрое и безотказное переключение всех 8 семестров во вкладке НБ и вывод «Нет пропусков» при отсутствии данных
+   - Переключение всех 8 семестров во вкладке НБ и вывод «Нет пропусков» при отсутствии данных
    - Две ветви уведомлений («Бот» и «HEMIS»): опрос HEMIS каждые 20 мин в окне 05:40–23:00 (Ташкент) и тихий час 23:30–05:50 */
 "use strict";
 
@@ -50,7 +49,6 @@ const ICON = {
   nb: '<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
   exam: '<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 3h6v3H9zM9 14l2 2 4-4"/>',
   grades: '<circle cx="12" cy="9" r="6"/><path d="M8.5 14.5 7 22l5-3 5 3-1.5-7.5"/>',
-  money: '<rect x="2" y="6" width="20" height="13" rx="3"/><path d="M2 10h20M16 14h2"/>',
   more: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
   left: '<path d="M15 18l-6-6 6-6"/>', right: '<path d="M9 18l6-6-6-6"/>',
@@ -71,22 +69,16 @@ const ICON = {
   download: '<path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
   moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
-  fingerprint: '<path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"/><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M2 16h.01"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M9 6.8a6 6 0 0 1 9 5.2c0 .47 0 1.17-.02 2"/>',
-  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
-  eyeOff: '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-6.5 0-10-7-10-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="m1 1 22 22"/>',
-  backspace: '<path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="m18 9-6 6M12 9l6 6"/>',
 };
-const HERO_ICON = { schedule: "calendar", nb: "nb", exams: "exam", grades: "grades", money: "money", more: "more", tasks: "tasks", resources: "book", subjects: "layers", contract: "wallet", settings: "bell" };
+const HERO_ICON = { schedule: "calendar", nb: "nb", exams: "exam", grades: "grades", more: "more", tasks: "tasks", resources: "book", subjects: "layers", contract: "wallet", settings: "bell" };
 const ico = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name] || ICON.calendar}</svg>`;
 
-// ---------------------------------------------------------------- состояние и кэш (Вкладка Финансы — крайняя справа)
+// ---------------------------------------------------------------- состояние и кэш
 const TABS = [
   { id: "schedule", label: "Расписание", icon: "calendar" },
   { id: "nb", label: "НБ", icon: "nb" },
   { id: "grades", label: "Оценки", icon: "grades" },
   { id: "more", label: "Ещё", icon: "more" },
-  { id: "money", label: "Финансы", icon: "money" },
 ];
 
 const SEM_SCREENS = new Set(["nb", "exams", "grades", "subjects", "tasks", "resources"]);
@@ -99,22 +91,6 @@ const S = {
   sem: {},
   examTab: null,
   notifBranch: "bot",    // bot | hemis (две ветви уведомлений)
-  moneyPeriod: "month",  // today | week | month | year
-  moneyTab: "ops",       // ops | opt | osv | debts | subs
-  showStorno: false,     // Показывать сторнированные и сторно-проводки
-  editTxId: null,        // Проводка в режиме исправления (сторно + новая)
-  debtPayId: null,       // Долг в режиме возврата (полного/частичного)
-  detailTxId: null,      // Компактная карточка подробностей проводки по тапу
-  pickingFile: false,    // Защита от автоблокировки PIN при открытии системного выбора файла
-  receiptModal: null,    // Открытое превью чека
-  moneyUnlocked: false,  // Защита вкладки Финансы (BiometricManager + PIN)
-  pinBuffer: "",
-  pinSetupMode: false,   // Режим смены PIN-кода
-  pinError: false,
-  bioScanning: false,
-  hideBalances: false,   // Скрытие балансов (••••••)
-  txFormOpen: false,
-  txKind: "expense",
   taskTab: "active",
   resKind: "all",
   res: { subject: null, name: "" },
@@ -131,38 +107,10 @@ const TTL = {
   tasks: 30 * 60e3,
   resources: 3 * 3600e3,
   contract: 6 * 3600e3,
-  money: 2 * 60e3,
   settings: 0,
 };
 const LS = "jv2:";
 const mem = new Map();
-
-// PIN хранится только в виде соли + SHA-256 (не в открытом виде). По умолчанию — «0000», пока пользователь не задал свой.
-async function sha256Hex(text) {
-  try {
-    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-  } catch (e) { return "p:" + text; } // нет crypto.subtle (старый WebView): запасной вариант
-}
-function pinSalt() {
-  try {
-    let salt = localStorage.getItem(LS + "pinsalt");
-    if (!salt) { salt = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(LS + "pinsalt", salt); }
-    return salt;
-  } catch (e) { return "static-salt"; }
-}
-async function checkSavedPin(pin) {
-  try {
-    const legacy = localStorage.getItem(LS + "pin"); // старый формат: PIN открытым текстом — переводим в хеш
-    if (legacy) { await setSavedPin(legacy); localStorage.removeItem(LS + "pin"); }
-    const stored = localStorage.getItem(LS + "pinh");
-    if (!stored) return String(pin) === "0000";
-    return stored === await sha256Hex(pinSalt() + String(pin));
-  } catch (e) { return String(pin) === "0000"; }
-}
-async function setSavedPin(pin) {
-  try { localStorage.setItem(LS + "pinh", await sha256Hex(pinSalt() + String(pin))); } catch (e) { /* ignore */ }
-}
 
 const DEFAULT_NOTIF_PREFS = {
   // Ветвь «Бот Джарвис» (время и частота, тихий час 23:30–05:50)
@@ -212,7 +160,7 @@ function cset(path, data) {
   mem.set(path, e);
   const write = () => localStorage.setItem(LS + path, JSON.stringify(e));
   try { write(); } catch (err) {
-    try { Object.keys(localStorage).filter((k) => k.startsWith(LS) && !["jv2:pin", "jv2:pinh", "jv2:pinsalt", "jv2:theme", "jv2:notif_prefs"].includes(k)).forEach((k) => localStorage.removeItem(k)); write(); } catch (err2) { /* ignore */ }
+    try { Object.keys(localStorage).filter((k) => k.startsWith(LS) && !["jv2:theme", "jv2:notif_prefs"].includes(k)).forEach((k) => localStorage.removeItem(k)); write(); } catch (err2) { /* ignore */ }
   }
 }
 const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "только что" : m < 60 ? `${m} мин назад` : m < 1440 ? `${Math.round(m / 60)} ч назад` : `${Math.round(m / 1440)} дн. назад`; };
@@ -245,7 +193,6 @@ function pathFor(id) {
     case "nb": case "exams": case "grades": case "tasks": return `${id}${S.sem[id] ? "?" + semQ(id) : ""}`;
     case "subjects": return `grades${S.sem.subjects ? "?semester=" + S.sem.subjects : ""}`;
     case "resources": return S.res.subject ? `resources?semester=${S.sem.resources}&subject=${S.res.subject}` : `resources${S.sem.resources ? "?" + semQ("resources") : ""}`;
-    case "money": return `money/overview?period=${S.moneyPeriod}${S.showStorno ? "&storno=1" : ""}`;
     case "contract": case "settings": return id;
     default: return null;
   }
@@ -444,534 +391,6 @@ function renderSubjects(d) {
     + p.subjects.map((s) => `<div class="card"><div class="name">${esc(s.name)}</div><div class="chips" style="margin-top:8px"><span class="chip tone-brand">${s.credit} кр.</span>${s.load ? `<span class="chip">${s.load} ч</span>` : ""}${s.kind ? `<span class="chip">${esc(s.kind)}</span>` : ""}</div></div>`).join("");
 }
 
-// ---------------------------------------------------------------- Экран Биометрии + PIN-код (лаконичный, без дублирующей кнопки отпечатка)
-function renderVaultGate() {
-  const title = S.pinSetupMode ? "Новый 4-значный PIN-код" : "Доступ к разделу финансы";
-  const sub = S.pinSetupMode ? "Введите 4 цифры" : "Подтвердите вход";
-
-  const dots = [0, 1, 2, 3].map((i) => {
-    const filled = i < S.pinBuffer.length ? "filled" : "";
-    const err = S.pinError ? "err" : "";
-    return `<span class="pin-dot ${filled} ${err}"></span>`;
-  }).join("");
-
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
-  return `<div class="card vault-wrap">
-    <button class="bio-orb ${S.bioScanning ? "scanning" : ""}" data-a="bioauth" aria-label="Войти по отпечатку пальца">
-      ${ico("fingerprint")}
-    </button>
-    <b style="font-size:18px">${esc(title)}</b>
-    <p class="muted small" style="margin:4px 0 0">${esc(sub)}</p>
-    <div class="pin-dots ${S.pinError ? "shake" : ""}">${dots}</div>
-    <div class="numpad">
-      ${keys.map((k) => `<button class="num-key" data-a="pinkey" data-digit="${k}">${k}</button>`).join("")}
-      <button class="num-key bio-key" data-a="bioauth" aria-label="Биометрия">${ico("fingerprint")}</button>
-      <button class="num-key" data-a="pinkey" data-digit="0">0</button>
-      <button class="num-key" data-a="pinback" aria-label="Стереть">${ico("backspace")}</button>
-    </div>
-    ${S.pinSetupMode ? `<div style="margin-top:16px"><button class="btn ghost sm" data-a="pincancel">Отмена</button></div>` : ""}
-  </div>`;
-}
-
-const CAT_ICONS = {
-  "продукты": "🛒", "еда": "🍽", "транспорт": "🚕", "связь": "📱", "покупки": "🛍", "развлечения": "🎮",
-  "здоровье": "💊", "жильё": "🏠", "учёба": "📚", "подписки": "🔁", "подарки": "🎁", "другое": "📦",
-  "стипендия": "🎓", "родители": "👪", "зарплата": "💼", "подработка": "🧑‍💻", "подарок": "🎁", "возврат": "↩️",
-  "начальный остаток": "🏁", "сверка": "⚖️",
-};
-const CAT_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4", "#ec4899"];
-const EXP_CATS = ["продукты", "еда", "транспорт", "покупки", "учёба", "связь", "подписки", "развлечения", "здоровье", "другое"];
-const INC_CATS = ["стипендия", "родители", "подработка", "зарплата", "подарок", "возврат", "другое"];
-
-const fmtMoney = (val) => (S.hideBalances ? "••••••" : money(val));
-
-function renderMoney(d) {
-  if (!S.moneyUnlocked || S.pinSetupMode) return renderVaultGate();
-  if (!d || !d.balances) return empty("💸", "Финансы загружаются", "");
-  const accounts = d.balances.accounts || [];
-  const summary = d.summary || {};
-  const debts = d.debts || [];
-  const subs = d.subscriptions || [];
-  const recent = d.recent || [];
-  const audit = d.audit || null;
-  const osv = d.osv || null;
-  const rqueue = d.receipt_queue || { pending: 0, uploaded: 0, failed: 0 };
-  const recBal = +(d.balances.receivable || 0);
-  const payBal = +(d.balances.payable || 0);
-  const netWorth = d.balances.net_worth != null ? d.balances.net_worth : d.balances.total;
-
-  const accStyles = ["card-bank", "card-cash", "card-save"];
-  const accSubtitles = { "1010": "UZCARD / HUMO", "1020": "CASH UZS", "1030": "СБЕРЕЖЕНИЯ" };
-
-  let html = `<div class="acc-grid ${accounts.length >= 3 ? "acc-grid-3" : ""}">
-    ${accounts.map((a, idx) => `<div class="acc-card ${accStyles[idx % accStyles.length]}">
-      <div class="acc-head">
-        <span>${esc(a.icon || "💳")} ${esc(a.name)}</span>
-        <span class="tiny">${esc(a.code ? a.code : (accSubtitles[a.code] || "UZS"))}</span>
-      </div>
-      <div class="acc-val">${fmtMoney(a.balance)} <span class="tiny" style="font-weight:500;opacity:0.8">сум</span></div>
-    </div>`).join("")}
-  </div>`;
-
-  const syncPill = rqueue.pending > 0
-    ? `<span class="sync-pill pending">⏳ В очереди на Диск: ${rqueue.pending}</span>`
-    : (rqueue.uploaded > 0 ? `<span class="sync-pill ok">☁️ Чеков на Диске: ${rqueue.uploaded}</span>` : "");
-
-  html += `<div class="card hero-card">
-    <div class="between" style="align-items:flex-start">
-      <div>
-        <div class="vault-head-row">
-          <span class="muted small">Чистый капитал</span>
-          <div class="vault-btns">
-            <button class="chip" data-a="hidebal" title="Скрыть или показать суммы">${ico(S.hideBalances ? "eyeOff" : "eye")}</button>
-            <button class="chip" data-a="pinsetup" title="Сменить PIN-код" aria-label="Сменить PIN-код">🔑</button>
-            <button class="chip tone-warn" data-a="lockmoney" title="Заблокировать Финансы">${ico("lock")}</button>
-          </div>
-        </div>
-        <div style="font-size:25px;font-weight:800;letter-spacing:-0.02em;margin-top:4px">${fmtMoney(netWorth)} <span class="small muted">сум</span></div>
-        <div class="row tiny muted" style="gap:8px;margin-top:4px;flex-wrap:wrap">
-          <span>Ликвидность: <b>${fmtMoney(d.balances.total)}</b></span>
-          ${recBal > 0 ? `<span style="color:var(--ok)">🟢 +${fmtMoney(recBal)}</span>` : ""}
-          ${payBal > 0 ? `<span style="color:var(--bad)">🔴 −${fmtMoney(payBal)}</span>` : ""}
-        </div>
-        ${syncPill ? `<div style="margin-top:6px">${syncPill}</div>` : ""}
-      </div>
-      <button class="btn sm" data-a="toggleform">${ico("plus")}${S.txFormOpen ? "Скрыть" : "Записать"}</button>
-    </div>
-    ${S.txFormOpen ? renderTxForm(accounts) : ""}
-  </div>`;
-
-  html += seg([["today", "Сегодня"], ["week", "7 дней"], ["month", "Месяц"], ["year", "Год"]], S.moneyPeriod, "mperiod");
-
-  html += `<div class="burn-strip">
-    <div class="tile"><b style="color:var(--bad)">−${fmtMoney(summary.expense || 0)}</b><span>Расходы</span></div>
-    <div class="tile"><b style="color:var(--ok)">+${fmtMoney(summary.income || 0)}</b><span>Доходы</span></div>
-    <div class="tile"><b>${summary.safe_daily ? fmtMoney(summary.safe_daily) : fmtMoney(summary.per_day || 0)}</b><span>${summary.safe_daily ? "Лимит/день" : "Темп/день"}</span></div>
-  </div>`;
-
-  if (summary.projected_month && S.moneyPeriod === "month") {
-    html += `<div class="card" style="padding:10px 14px">
-      <div class="between small">
-        <span class="muted">🔥 Прогноз к концу месяца (Burn-Rate):</span>
-        <b>~${fmtMoney(summary.projected_month)} сум</b>
-      </div>
-    </div>`;
-  }
-
-  html += `<div class="mtab-scroll">${seg([
-    ["ops", "Журнал", `${recent.length}`],
-    ["opt", "Аудит"],
-    ["osv", "ОСВ"],
-    ["debts", "Долги", `${debts.length}`],
-    ["subs", "Подписки", `${subs.length}`],
-  ], S.moneyTab, "mtab")}</div>`;
-
-  if (S.moneyTab === "opt") {
-    html += renderOptimizationTab(audit, summary);
-  } else if (S.moneyTab === "osv") {
-    html += renderOsvTab(osv);
-  } else if (S.moneyTab === "debts") {
-    html += renderDebtsTab(debts, accounts);
-  } else if (S.moneyTab === "subs") {
-    html += renderSubsTab(subs);
-  } else {
-    html += renderJournalTab(recent, accounts);
-  }
-
-  if (S.detailTxId) {
-    const detTx = recent.find((t) => t.id === S.detailTxId);
-    if (detTx) html += renderTxDetailModal(detTx);
-  }
-  if (S.receiptModal) {
-    html += renderReceiptModal(S.receiptModal);
-  }
-  return html;
-}
-
-function renderOptimizationTab(audit, summary) {
-  const cats = summary.expense_by_category || [];
-  const totalExp = Math.max(1, +(summary.expense || 0));
-  if (!cats.length && (!audit || !audit.total_expense)) {
-    return empty("🔍", "За этот период трат нет", "Добавьте расход кнопкой «Записать» выше.");
-  }
-  let out = "";
-  if (audit && audit.groups) {
-    const gE = audit.groups.essential || { total: 0, share_pct: 0 };
-    const gD = audit.groups.discretionary || { total: 0, share_pct: 0 };
-    const gL = audit.groups.leakage || { total: 0, share_pct: 0 };
-    out += `<div class="card">
-      <div class="between">
-        <b>✂️ Структура трат и оптимизация</b>
-        ${audit.savings_rate_pct != null ? `<span class="pill ${audit.savings_rate_pct >= 15 ? "tone-ok" : "tone-warn"}">Сбережения ${audit.savings_rate_pct > 0 ? "+" : ""}${audit.savings_rate_pct}%</span>` : ""}
-      </div>
-      <div class="stack-bar" style="margin-top:10px">
-        ${gE.share_pct > 0 ? `<i style="width:${gE.share_pct}%;background:#3b82f6"></i>` : ""}
-        ${gD.share_pct > 0 ? `<i style="width:${gD.share_pct}%;background:#f59e0b"></i>` : ""}
-        ${gL.share_pct > 0 ? `<i style="width:${gL.share_pct}%;background:#ef4444"></i>` : ""}
-      </div>
-      <div class="opt-grid">
-        <div class="opt-item"><span class="dot" style="background:#3b82f6"></span><div><div class="tiny muted">Обязательные</div><b>${fmtMoney(gE.total)}</b> <span class="tiny muted">${Math.round(gE.share_pct)}%</span></div></div>
-        <div class="opt-item"><span class="dot" style="background:#f59e0b"></span><div><div class="tiny muted">Гибкие (экономия)</div><b>${fmtMoney(gD.total)}</b> <span class="tiny muted">${Math.round(gD.share_pct)}%</span></div></div>
-        <div class="opt-item"><span class="dot" style="background:#ef4444"></span><div><div class="tiny muted">Утечки (сверка)</div><b>${fmtMoney(gL.total)}</b> <span class="tiny muted">${Math.round(gL.share_pct)}%</span></div></div>
-      </div>
-      ${audit.small_tickets && audit.small_tickets.count > 0 ? `<div class="leak-banner">
-        ☕ <span>Мелкие чеки до ${fmtMoney(audit.small_tickets.threshold_uzs)} сум:</span>
-        <b>${fmtMoney(audit.small_tickets.total)} сум (${audit.small_tickets.count} шт.)</b>
-      </div>` : ""}
-    </div>`;
-
-    if (audit.anomalies && audit.anomalies.length) {
-      out += `<div class="card">
-        <div class="name" style="margin-bottom:8px">⚠️ Рост к среднему за 3 месяца</div>
-        ${audit.anomalies.map((an) => `<div class="between small" style="padding:5px 0;border-top:1px solid var(--line)">
-          <span>${CAT_ICONS[an.category] || "📦"} <b>${esc(an.category)}</b></span>
-          <span>${fmtMoney(an.spent)} <span class="pill tone-bad">+${Math.round(an.growth_pct)}%</span></span>
-        </div>`).join("")}
-      </div>`;
-    }
-
-    if (audit.top_merchants && audit.top_merchants.length) {
-      out += `<div class="card">
-        <div class="name" style="margin-bottom:8px">🏪 Топ точек, куда уходят деньги</div>
-        ${audit.top_merchants.slice(0, 6).map((m) => `<div class="between small" style="padding:6px 0;border-top:1px solid var(--line)">
-          <div><b>${esc(m.label)}</b><div class="tiny muted">${m.count} чек(ов) · ср. ${fmtMoney(m.avg_check)}</div></div>
-          <b>${fmtMoney(m.total)} сум</b>
-        </div>`).join("")}
-      </div>`;
-    }
-  }
-
-  if (cats.length) {
-    const stack = `<div class="stack-bar">${cats.slice(0, 6).map((c, i) => `<i style="width:${Math.max(3, (c[1] / totalExp) * 100).toFixed(1)}%;background:${CAT_COLORS[i % CAT_COLORS.length]}"></i>`).join("")}</div>`;
-    out += `<div class="card"><div class="name" style="margin-bottom:8px">📊 Категории расходов</div>${stack}${cats.map((c, i) => {
-      const catName = c[0], amt = c[1], cnt = c[2], pct = Math.round((amt / totalExp) * 100);
-      return `<div style="margin-top:11px">
-        <div class="between small">
-          <span>${CAT_ICONS[catName] || "📦"} <b>${esc(catName)}</b> <span class="muted">(${cnt} шт.)</span></span>
-          <span><b>${fmtMoney(amt)}</b> сум · <span class="muted">${pct}%</span></span>
-        </div>
-        <div class="bar" style="margin:6px 0 0;height:6px"><i style="width:${pct}%;background:${CAT_COLORS[i % CAT_COLORS.length]}"></i></div>
-      </div>`;
-    }).join("")}</div>`;
-  }
-  return out;
-}
-
-function renderOsvTab(osv) {
-  if (!osv || !osv.rows || !osv.rows.length) {
-    return empty("📑", "Оборотов за период нет", "После первых проводок здесь появится оборотно-сальдовая ведомость.");
-  }
-  const rows = osv.rows.filter((r) => r.debit_turn || r.credit_turn || r.closing_bal);
-  return `<div class="card">
-    <div class="between" style="margin-bottom:10px">
-      <b>📑 Оборотно-сальдовая (ОСВ)</b>
-      <span class="pill ${osv.balanced ? "tone-ok" : "tone-bad"}">${osv.balanced ? "Дт = Кт ✅" : "Расхождение ⚠️"}</span>
-    </div>
-    <div class="osv-head"><span>Счёт</span><span>Оборот Дт / Кт</span><span>Сальдо</span></div>
-    ${rows.map((r) => `<div class="osv-row">
-      <div class="osv-acc"><span class="osv-code">${esc(r.code)}</span> ${esc(r.icon || "")} <b>${esc(r.name)}</b></div>
-      <div class="osv-turn tiny"><span style="color:var(--ok)">Дт ${fmtMoney(r.debit_turn)}</span><br><span style="color:var(--bad)">Кт ${fmtMoney(r.credit_turn)}</span></div>
-      <div class="osv-bal"><b>${fmtMoney(r.closing_bal)}</b></div>
-    </div>`).join("")}
-    <div class="osv-total between small">
-      <span>Итого обороты:</span>
-      <b>Дт ${fmtMoney(osv.total_debit)} = Кт ${fmtMoney(osv.total_credit)}</b>
-    </div>
-  </div>`;
-}
-
-function renderDebtsTab(debts, accounts) {
-  if (!debts.length) return empty("🤝", "Активных долгов нет", "Никто никому не должен. В чате можно написать: «одолжил Алишеру 100к с карты».");
-  const accList = accounts.length ? accounts : [{ name: "карта", icon: "💳" }, { name: "наличные", icon: "💵" }];
-  return debts.map((db) => {
-    const isGiven = db.direction === "given";
-    const isOpen = S.debtPayId === db.id;
-    return `<div class="card">
-      <div class="between">
-        <div>
-          <span class="pill ${isGiven ? "tone-ok" : "tone-bad"}">${isGiven ? "1200 · Мне должны" : "2010 · Я должен"}</span>
-          <div class="name" style="margin-top:6px">${esc(db.person)}</div>
-          ${db.description ? `<div class="muted small">${esc(db.description)}</div>` : ""}
-        </div>
-        <div style="text-align:right">
-          <b style="font-size:17px">${fmtMoney(db.amount)} сум</b>
-          ${db.due_date ? `<div class="muted tiny">до ${esc(db.due_date)}</div>` : ""}
-          <div style="margin-top:6px">
-            <button class="btn tonal sm" data-a="debttoggle" data-id="${db.id}">${isOpen ? "Скрыть" : "Возврат"}</button>
-          </div>
-        </div>
-      </div>
-      ${isOpen ? `<div class="inline-drawer">
-        <div class="form-row">
-          <input class="inp" id="debtAmt_${db.id}" type="number" inputmode="decimal" value="${Math.round(+db.amount)}" placeholder="Сумма возврата">
-          <select class="sel" id="debtAcc_${db.id}">
-            ${accList.map((a) => `<option value="${esc(a.name)}">${esc(a.icon || "💳")} ${esc(a.name)}</option>`).join("")}
-          </select>
-        </div>
-        <button class="btn ok sm block" style="margin-top:8px" data-a="debtclose" data-id="${db.id}" data-person="${esc(db.person)}">Провести возврат</button>
-      </div>` : ""}
-    </div>`;
-  }).join("");
-}
-
-function renderSubsTab(subs) {
-  if (!subs.length) return empty("🔁", "Подписок пока нет", "Регулярные списания (интернет, связь, сервисы) появятся здесь.");
-  return subs.map((s) => `<div class="card">
-    <div class="between">
-      <div>
-        <div class="name">${esc(s.title)}</div>
-        <div class="muted small">Каждое <b>${s.billing_day}</b>-е число · ${esc(s.category)}</div>
-      </div>
-      <div style="text-align:right">
-        <b>${fmtMoney(s.amount)} ${esc(s.currency)}</b>
-        <div style="margin-top:6px">
-          <button class="btn tonal sm" data-a="subpay" data-id="${s.id}" data-title="${esc(s.title)}" data-amount="${s.amount}" data-cur="${esc(s.currency)}" data-cat="${esc(s.category)}">Списать</button>
-        </div>
-      </div>
-    </div>
-  </div>`).join("");
-}
-
-function renderJournalTab(recent, accounts) {
-  const toggleBar = `<div class="between" style="margin:2px 2px 8px">
-    <span class="muted tiny">Иммутабельный журнал (Дт = Кт)</span>
-    <button class="chip ${S.showStorno ? "tone-warn" : ""}" data-a="togglestorno">${S.showStorno ? "👁 Скрыть сторно" : "↩︎ Показать сторно"}</button>
-  </div>`;
-  if (!recent.length) return toggleBar + empty("🧾", "Проводок пока нет", "Нажмите «Записать», чтобы внести первую операцию.");
-  const accList = accounts.length ? accounts : [{ name: "карта", icon: "💳" }, { name: "наличные", icon: "💵" }, { name: "копилка", icon: "🏦" }];
-
-  return toggleBar + `<div class="card">${recent.map((tx) => {
-    const isInc = tx.kind === "income" || tx.kind === "opening" || tx.kind === "debt_taken";
-    const isTr = tx.kind === "transfer" || tx.kind === "debt_repay";
-    const isStorno = tx.kind === "storno";
-    const isRev = Boolean(tx.is_reversed);
-    const sign = isStorno ? "↩ " : (isInc ? "+" : isTr ? "⇄ " : "−");
-    const icoChar = isStorno ? "↩️" : (isTr ? "🔁" : (CAT_ICONS[tx.category] || "💳"));
-    const title = tx.description || tx.category || (isTr ? `${tx.account} → ${tx.to_account}` : "Проводка");
-    const receipts = tx.receipts || [];
-    const canEdit = !isRev && !isStorno && (tx.kind === "expense" || tx.kind === "income") && tx.entry_type !== "split";
-    const isEditing = S.editTxId === tx.id;
-    const cats = tx.kind === "income" ? INC_CATS : EXP_CATS;
-
-    return `<div class="tx-block ${isRev ? "tx-rev" : ""}">
-      <div class="tx-row">
-        <div class="tx-ico" data-a="txdetail" data-id="${tx.id}" style="cursor:pointer">${icoChar}</div>
-        <div class="grow tx-tap" data-a="txdetail" data-id="${tx.id}" style="min-width:0;cursor:pointer">
-          <div class="name" style="font-size:14.5px;${isRev ? "text-decoration:line-through;opacity:0.65" : ""}">${esc(title)}</div>
-          ${tx.posting ? `<div class="posting-tag">${esc(tx.posting)}</div>` : ""}
-          <div class="tx-meta-line muted tiny">
-            <span>${dm(tx.created_at)} · <b>#${tx.id}</b>${isRev ? ` · сторно #${tx.reversed_by_id}` : ""}</span>
-            ${receipts.length ? `<span class="rc-inline ${receipts.some((r) => r.status === "uploaded") ? "ok" : "pending"}">🧾 Чек${receipts.length > 1 ? ` (${receipts.length})` : ""}</span>` : ""}
-          </div>
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div class="tx-amt ${isStorno ? "" : (isInc ? "inc" : "exp")}" data-a="txdetail" data-id="${tx.id}" style="cursor:pointer">${sign}${fmtMoney(tx.amount)}</div>
-          ${!isStorno ? `<div class="tx-actions">
-            <button class="chip xs" data-a="attachreceipt" data-id="${tx.id}" title="Прикрепить чек">📎</button>
-            ${canEdit ? `<button class="chip xs" data-a="txedit" data-id="${tx.id}" title="Исправить через сторно">✏️</button>` : ""}
-            ${!isRev ? `<button class="chip xs" data-a="txvoid" data-id="${tx.id}" title="Сторнировать проводку">↩︎</button>` : ""}
-          </div>` : ""}
-        </div>
-      </div>
-      ${isEditing ? `<div class="inline-drawer">
-        <div class="tiny muted" style="margin-bottom:6px">Исправление создаст обратное сторно #${tx.id} и новую проводку:</div>
-        <div class="form-row">
-          <select class="sel" id="editCat_${tx.id}">
-            ${cats.map((c) => `<option value="${esc(c)}" ${c === tx.category ? "selected" : ""}>${CAT_ICONS[c] || "📦"} ${esc(c)}</option>`).join("")}
-          </select>
-          <select class="sel" id="editAcc_${tx.id}">
-            ${accList.map((a) => `<option value="${esc(a.name)}" ${a.name === tx.account ? "selected" : ""}>${esc(a.icon || "💳")} ${esc(a.name)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="row" style="gap:8px;margin-top:8px">
-          <button class="btn ok sm grow" data-a="txcorrect" data-id="${tx.id}">Сохранить (Сторно + Новая)</button>
-          <button class="btn tonal sm" data-a="txedit" data-id="${tx.id}">Отмена</button>
-        </div>
-      </div>` : ""}
-    </div>`;
-  }).join("")}</div>`;
-}
-
-function renderTxDetailModal(tx) {
-  const isInc = tx.kind === "income" || tx.kind === "opening" || tx.kind === "debt_taken";
-  const isTr = tx.kind === "transfer" || tx.kind === "debt_repay";
-  const isStorno = tx.kind === "storno";
-  const isRev = Boolean(tx.is_reversed);
-  const sign = isStorno ? "↩ " : (isInc ? "+" : isTr ? "⇄ " : "−");
-  const receipts = tx.receipts || [];
-  const title = tx.description || tx.category || (isTr ? `${tx.account} → ${tx.to_account}` : "Проводка");
-
-  return `<div class="modal-backdrop" data-a="closedetail">
-    <div class="modal-card compact-sheet" onclick="event.stopPropagation()">
-      <div class="between" style="margin-bottom:8px">
-        <div class="row" style="gap:6px">
-          <span class="pill">#${tx.id}</span>
-          <span class="muted tiny">${dm(tx.created_at)}</span>
-        </div>
-        <button class="chip xs" data-a="closedetail">✕</button>
-      </div>
-      <div class="name" style="font-size:16px">${esc(title)}</div>
-      <div class="tx-amt ${isStorno ? "" : (isInc ? "inc" : "exp")}" style="font-size:21px;margin:4px 0 8px">${sign}${fmtMoney(tx.amount)} сум</div>
-      ${tx.posting ? `<div class="posting-tag" style="white-space:normal">${esc(tx.posting)}</div>` : ""}
-      <div class="detail-kv">
-        ${tx.category ? `<div><span class="muted">Категория:</span> <b>${esc(tx.category)}</b></div>` : ""}
-        ${tx.account ? `<div><span class="muted">Счёт:</span> <b>${esc(tx.account)}${tx.to_account ? ` → ${esc(tx.to_account)}` : ""}</b></div>` : ""}
-        ${tx.merchant ? `<div><span class="muted">Контрагент:</span> <b>${esc(tx.merchant)}</b></div>` : ""}
-        ${isRev ? `<div style="color:var(--warn,#f59e0b)">Сторнировано проводкой #${tx.reversed_by_id}</div>` : ""}
-      </div>
-      ${receipts.length ? `<div class="detail-receipts">
-        <div class="tiny muted" style="margin-bottom:6px">Прикреплённые чеки (${receipts.length}):</div>
-        ${receipts.map((r) => `<div class="detail-rc-row">
-          <div class="grow" style="min-width:0">
-            <div class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🧾 ${esc(r.filename)}</div>
-            <div class="tiny muted">${r.status === "uploaded" ? "☁️ На Google Диске (Receipts)" : (r.status === "failed" ? "⚠️ Ошибка загрузки" : "⏳ В очереди на Google Диск")}</div>
-          </div>
-          <div class="row" style="gap:5px;flex-shrink:0">
-            <button class="btn tonal sm" data-a="sendreceipt" data-id="${r.id}">📤 В чат</button>
-            <button class="chip xs" data-a="openreceipt" data-id="${r.id}" data-url="${esc(r.gdrive_url || "")}" title="Открыть">👁</button>
-          </div>
-        </div>`).join("")}
-      </div>` : ""}
-      ${!isStorno ? `<div class="row" style="gap:6px;margin-top:12px;flex-wrap:wrap">
-        <button class="btn tonal sm grow" data-a="attachreceipt" data-id="${tx.id}">📎 Прикрепить чек</button>
-        ${!isRev ? `<button class="btn tonal sm" data-a="txvoid" data-id="${tx.id}">↩︎ Сторно</button>` : ""}
-      </div>` : ""}
-    </div>
-  </div>`;
-}
-
-function renderReceiptModal(m) {
-  const isPdf = (m.mime_type || "").includes("pdf");
-  return `<div class="modal-backdrop" data-a="closereceipt">
-    <div class="modal-card" onclick="event.stopPropagation()">
-      <div class="between" style="margin-bottom:10px">
-        <b class="small">${esc(m.filename || "Чек")}</b>
-        <button class="chip" data-a="closereceipt">✕</button>
-      </div>
-      ${m.data_url && !isPdf ? `<img class="receipt-img" src="${m.data_url}" alt="Чек">` : `<div class="muted small" style="padding:18px 0;text-align:center">${isPdf ? "PDF-чек находится в очереди синхронизации с Google Диском." : "Превью недоступно."}</div>`}
-      <div class="muted tiny" style="margin-top:8px;text-align:center">⏳ Чек сохранён в базе и скоро уйдёт в папку «Чеки» на Google Диске.</div>
-    </div>
-  </div>`;
-}
-
-function renderTxForm(accounts) {
-  const cats = S.txKind === "income" ? INC_CATS : EXP_CATS;
-  const accList = (accounts && accounts.length) ? accounts : [
-    { name: "карта", icon: "💳" }, { name: "наличные", icon: "💵" }, { name: "копилка", icon: "🏦" }
-  ];
-  return `<div class="detail tx-form">
-    ${seg([["expense", "➖ Расход"], ["income", "➕ Доход"], ["transfer", "🔁 Перевод"]], S.txKind, "txkind")}
-    <div class="form-row">
-      <input class="inp" id="txAmount" type="number" inputmode="decimal" placeholder="Сумма (напр. 45000)" min="1">
-      <select class="sel" id="txCurrency" aria-label="Валюта">
-        <option value="UZS">UZS</option>
-        <option value="USD">USD ($)</option>
-        <option value="EUR">EUR (€)</option>
-        <option value="RUB">RUB (₽)</option>
-      </select>
-    </div>
-    <div class="form-row">
-      ${S.txKind === "transfer" ? `<select class="sel" id="txToAccount" aria-label="Куда">
-        ${accList.map((a, i) => `<option value="${esc(a.name)}" ${i === 1 ? "selected" : ""}>→ ${esc(a.icon || "💵")} ${esc(a.name)}</option>`).join("")}
-      </select>` : `<select class="sel" id="txCategory" aria-label="Категория">
-        ${cats.map((c) => `<option value="${esc(c)}">${CAT_ICONS[c] || "📦"} ${esc(c)}</option>`).join("")}
-      </select>`}
-      <select class="sel" id="txAccount" aria-label="Счёт">
-        ${accList.map((a) => `<option value="${esc(a.name)}">${esc(a.icon || "💳")} ${esc(a.name)}</option>`).join("")}
-      </select>
-    </div>
-    <input class="inp" id="txDesc" type="text" placeholder="${S.txKind === "transfer" ? "Комментарий к переводу" : "Описание / магазин (напр. Корзинка, кофе)"}">
-    <label class="file-pick-row">
-      <span>📎 Прикрепить чек (фото / PDF, необязательно)</span>
-      <input type="file" id="txReceiptFile" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" data-a="armpicker">
-    </label>
-    <button class="btn ok block" data-a="txsubmit">${ico("check")}Провести операцию</button>
-  </div>`;
-}
-
-// Клиентское сжатие фото чека (<= 1400px JPEG q=0.82) для быстрой загрузки и экономии места
-async function compressReceiptFile(file) {
-  if (!file) return null;
-  if (file.type === "application/pdf" || !file.type.startsWith("image/")) {
-    if (file.size > 15 * 1024 * 1024) throw new Error("Файл больше 15 МБ");
-    const dataUrl = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result);
-      r.onerror = () => rej(new Error("Не удалось прочитать файл"));
-      r.readAsDataURL(file);
-    });
-    return { filename: file.name || "receipt.pdf", mime_type: file.type || "application/pdf", data_base64: dataUrl };
-  }
-  const bmp = await new Promise((res, rej) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => { URL.revokeObjectURL(url); res(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("Не удалось открыть фото")); };
-    img.src = url;
-  });
-  const maxSide = 1400;
-  let w = bmp.naturalWidth || bmp.width, h = bmp.naturalHeight || bmp.height;
-  if (w > maxSide || h > maxSide) {
-    const k = maxSide / Math.max(w, h);
-    w = Math.round(w * k);
-    h = Math.round(h * k);
-  }
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(bmp, 0, 0, w, h);
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
-  const cleanName = (file.name || "receipt.jpg").replace(/\.[^.]+$/, "") + ".jpg";
-  return { filename: cleanName, mime_type: "image/jpeg", data_base64: dataUrl };
-}
-
-let _pickGuardTimer = null;
-function armFilePickerGuard() {
-  S.pickingFile = true;
-  clearTimeout(_pickGuardTimer);
-  _pickGuardTimer = setTimeout(() => { S.pickingFile = false; }, 120000);
-}
-function releaseFilePickerGuard() {
-  clearTimeout(_pickGuardTimer);
-  _pickGuardTimer = setTimeout(() => { S.pickingFile = false; }, 1500);
-}
-
-let _receiptTargetEntryId = null;
-function pickReceiptForEntry(entryId) {
-  _receiptTargetEntryId = entryId;
-  armFilePickerGuard();
-  let inp = document.getElementById("globalReceiptPicker");
-  if (!inp) {
-    inp = document.createElement("input");
-    inp.id = "globalReceiptPicker";
-    inp.type = "file";
-    inp.accept = "image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt";
-    inp.hidden = true;
-    document.body.appendChild(inp);
-    inp.addEventListener("cancel", releaseFilePickerGuard);
-    inp.addEventListener("change", async () => {
-      const file = inp.files && inp.files[0];
-      inp.value = "";
-      releaseFilePickerGuard();
-      if (!file || !_receiptTargetEntryId) return;
-      const eid = _receiptTargetEntryId;
-      toast("Сохраняю чек в очередь…");
-      try {
-        const packed = await compressReceiptFile(file);
-        await post("money/receipt", { entry_id: eid, ...packed });
-        toast("Чек поставлен в очередь на Google Диск ☁️");
-        haptic("success");
-        await load({ force: true, anim: "fade" });
-      } catch (err) {
-        toast((err && err.message) || "Не удалось загрузить чек");
-        haptic("error");
-      }
-    });
-  }
-  inp.click();
-}
-
 // ---------------------------------------------------------------- «Ещё» и подразделы
 const MENU = [
   ["exams", "Экзамены и Контроли", "Расписание 1-ON, 2-ON и сессии по 8 семестрам", "exam", "brand"],
@@ -1070,7 +489,6 @@ function renderContract(c) {
     <div class="money"><div class="tile"><b>${money(c.total)}</b><span>Всего</span></div><div class="tile"><b>${money(c.paid)}</b><span>Оплачено</span></div><div class="tile"><b>${money(c.remaining)}</b><span>Остаток</span></div></div>
     ${c.remaining > 0 ? `<div class="row" style="gap:8px">
       <button class="btn grow" data-a="copy" data-text="${Math.round(c.remaining)}">${ico("copy")}Скопировать остаток</button>
-      <button class="btn tonal grow" data-a="contractpay" data-amount="${monthlyRec}">💸 Записать 1 мес.</button>
     </div>` : ""}
     ${info.length ? `<div class="card">${info.map(([k, v]) => `<div class="kv"><span>${k}</span><span>${esc(v)}</span></div>`).join("")}</div>` : ""}`;
 }
@@ -1078,8 +496,7 @@ function renderContract(c) {
 // ---------- Двухветвевые настройки уведомлений («Бот» и «HEMIS»)
 const BOT_TOGGLE_META = [
   ["bot_briefing_on", "Утренний ИИ-брифинг Джарвиса", "План дня, задачи, погода и приоритеты"],
-  ["bot_finance_on", "Вечерний итог дня и финансы", "Вечером: дела, расходы за день и остатки"],
-  ["bot_subs_on", "Подписки и возврат долгов", "Утром в день списания подписки и за день до срока долга"],
+  ["bot_finance_on", "Вечерний итог дня", "Вечером: выполненные дела и напоминания на завтра"],
   ["bot_model_footer", "Подпись «какая ИИ ответила»", "Под ответом Джарвиса — название модели, которая выполнила запрос"],
 ];
 
@@ -1126,7 +543,7 @@ function renderSettings(d) {
   const isOn = (key) => (key in toggleMap ? toggleMap[key] : true);
 
   const branchTabs = seg([
-    ["bot", "🤖 Уведомления Бота", "ИИ, финансы, задачи"],
+    ["bot", "🤖 Уведомления Бота", "ИИ, брифинг, задачи"],
     ["hemis", "🎓 Уведомления Helper", "пары, оценки, НБ"],
   ], S.notifBranch, "notifbranch");
 
@@ -1134,7 +551,7 @@ function renderSettings(d) {
     const timeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «Бот»</div>
       <div class="card notif-block">
         ${renderTimeRow("Утренний ИИ-брифинг", "Сводка задач, планов и курса валют утром", "bot_morning_time", prefs.bot_morning_time, ["06:00", "07:00", "07:30", "08:00", "09:00"])}
-        ${renderTimeRow("Вечерний итог дня", "Дела, расходы и остатки за день", "bot_evening_time", prefs.bot_evening_time, ["20:00", "21:00", "22:00", "23:00"])}
+        ${renderTimeRow("Вечерний итог дня", "Выполненные дела и план на завтра", "bot_evening_time", prefs.bot_evening_time, ["20:00", "21:00", "22:00", "23:00"])}
         ${renderFreqRow("Тихий час (Не беспокоить)", "Интервал без звуковых уведомлений ночью по Ташкенту", "bot_quiet_hours", prefs.bot_quiet_hours, [
           ["23:30-05:50", "23:30 – 05:50"],
           ["00:00-06:00", "00:00 – 06:00"],
@@ -1207,8 +624,6 @@ function heroFor(id, d) {
       const sCode = S.sem.grades || (d && d.perf && d.perf.semester) || "13";
       return ["Оценки и GPA", `${semNo(sCode)}-й семестр${d && d.perf && d.perf.period ? " · " + d.perf.period : ""}`];
     }
-    case "money":
-      if (!S.moneyUnlocked) return ["Финансы", "Подтвердите вход"];
       return ["Финансы", d && d.summary ? `Расходы ${d.summary.title || "за период"}: ${fmtMoney(d.summary.expense)} сум` : "Счета, бюджет и Burn-Rate"];
     case "subjects": {
       const sCode = S.sem.subjects || (d && d.perf && d.perf.semester) || "13";
@@ -1232,7 +647,6 @@ const RENDER = {
   nb: renderNb,
   exams: renderExams,
   grades: renderGrades,
-  money: renderMoney,
   more: renderMore,
   subjects: renderSubjects,
   tasks: renderTasks,
@@ -1253,7 +667,7 @@ function errorView(e) {
   return `<div class="card err"><div class="big">${emoji}</div><h3>${esc(title)}</h3><p class="muted small">${esc(text)}</p><button class="btn" data-a="retry">Повторить</button></div>`;
 }
 
-// ---------------------------------------------------------------- DOM и BiometricManager
+// ---------------------------------------------------------------- DOM
 if (typeof document !== "undefined") {
   const $ = (id) => document.getElementById(id);
   const view = $("view"), loadbar = $("loadbar"), refreshBtn = $("refresh"), themeBtn = $("themeBtn");
@@ -1275,73 +689,6 @@ if (typeof document !== "undefined") {
     clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
   }
   const haptic = (kind) => { try { tg && tg.HapticFeedback && (kind ? tg.HapticFeedback.notificationOccurred(kind) : tg.HapticFeedback.selectionChanged()); } catch (e) { /* ignore */ } };
-
-  // Инициализация нативного Telegram BiometricManager (Bot API 7.2+)
-  function initBiometrics() {
-    try {
-      if (tg && tg.BiometricManager && !tg.BiometricManager.isInited) {
-        tg.BiometricManager.init(() => {
-          if (current() === "money" && !S.moneyUnlocked) repaint(null);
-        });
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  function triggerBiometricAuth() {
-    const bm = tg && tg.BiometricManager;
-    if (bm && bm.isInited && bm.isBiometricAvailable) {
-      const runAuth = () => {
-        S.bioScanning = true;
-        repaint(null);
-        bm.authenticate({ reason: "Подтвердите вход в Финансы" }, (ok) => {
-          S.bioScanning = false;
-          if (ok) {
-            S.moneyUnlocked = true;
-            S.pinBuffer = "";
-            S.pinError = false;
-            renderTabsBar();
-            haptic("success");
-            toast("Вход выполнен 🔓");
-            load({ anim: "fade" });
-          } else {
-            haptic("error");
-            toast("Биометрия не подтверждена — введите PIN");
-            repaint(null);
-          }
-        });
-      };
-      if (!bm.isAccessGranted) {
-        bm.requestAccess({ reason: "Подтвердите вход в Финансы" }, (granted) => {
-          if (granted) runAuth();
-          else toast("Доступ к биометрии отклонён — используйте PIN-код");
-        });
-      } else {
-        runAuth();
-      }
-      return;
-    }
-
-    // Нет BiometricManager (Telegram Desktop/Web, старое устройство): отпечаток «подтвердить» нельзя — только PIN.
-    // Визуальная имитация сканирования остаётся лишь в демо-режиме (открытие в браузере без Telegram).
-    if (!DEMO) {
-      haptic("error");
-      toast("Биометрия недоступна на этом устройстве — введите PIN-код");
-      return;
-    }
-    if (S.bioScanning) return;
-    S.bioScanning = true;
-    repaint(null);
-    setTimeout(() => {
-      S.bioScanning = false;
-      S.moneyUnlocked = true;
-      S.pinBuffer = "";
-      S.pinError = false;
-      renderTabsBar();
-      haptic("success");
-      toast("Отпечаток подтверждён 🔓 (демо)");
-      load({ anim: "fade" });
-    }, 520);
-  }
 
   function syncThemeIcon() {
     if (!themeBtn) return;
@@ -1376,11 +723,11 @@ if (typeof document !== "undefined") {
     $("title").textContent = title;
     $("subtitle").textContent = sub || "\u00a0";
     $("stamp").textContent = stampText(stamp);
-    const icon = id === "money" && !S.moneyUnlocked ? "lock" : (HERO_ICON[id] || "calendar");
+    const icon = HERO_ICON[id] || "calendar";
     if (icon !== lastIcon) { $("badge").innerHTML = ico(icon); lastIcon = icon; }
     renderTabsBar();
     $("back").hidden = !S.sub;
-    refreshBtn.hidden = id === "more" || (id === "money" && !S.moneyUnlocked);
+    refreshBtn.hidden = id === "more";
     try { if (tg && tg.BackButton) S.sub ? tg.BackButton.show() : tg.BackButton.hide(); } catch (e) { /* ignore */ }
   }
 
@@ -1400,10 +747,6 @@ if (typeof document !== "undefined") {
     if (opts.token != null && opts.token !== reqId) return;
     if (opts.bg && pressing) { deferred = () => paint(id, data, stamp, opts); return; }
     chrome(id, data, stamp);
-    if (id === "money" && (!S.moneyUnlocked || S.pinSetupMode)) {
-      show(renderVaultGate(), opts.anim);
-      return;
-    }
     if (!data && id !== "more") {
       // Сохраняем полосу семестров на экране во время подгрузки, чтобы переключение семестров никогда не зависало
       if (SEM_SCREENS.has(id) && !(id === "resources" && S.res.subject)) {
@@ -1421,11 +764,6 @@ if (typeof document !== "undefined") {
   async function load(opts = {}) {
     const { force = false, anim = "fade" } = opts;
     const my = ++reqId, id = current(), path = pathFor(id);
-    if (id === "money" && !S.moneyUnlocked) {
-      paint(id, null, 0, { anim });
-      setBusy(false);
-      return;
-    }
     if (!path) { paint(id, null, 0, { anim }); setBusy(false); return; }
     const e = cget(path);
     paint(id, e && e.data, e && e.t, { anim });
@@ -1454,10 +792,6 @@ if (typeof document !== "undefined") {
 
   const repaint = (anim) => {
     const id = current();
-    if (id === "money" && (!S.moneyUnlocked || S.pinSetupMode)) {
-      paint(id, null, 0, { anim });
-      return;
-    }
     const e = cget(pathFor(id));
     if (e) paint(id, e.data, e.t, { anim });
   };
@@ -1486,77 +820,10 @@ if (typeof document !== "undefined") {
         S.sub = null;
         S.open.clear();
         load();
-        if (t === "money" && !S.moneyUnlocked) {
-          const bm = tg && tg.BiometricManager;
-          if (bm && bm.isInited && bm.isBiometricAvailable && bm.isAccessGranted) {
-            triggerBiometricAuth();
-          }
-        }
       }
     },
     open: (el) => { S.sub = el.dataset.sub; S.open.clear(); if (S.sub === "resources") S.res.subject = null; load({ anim: "next" }); },
     back: goBack,
-    bioauth: () => triggerBiometricAuth(),
-    pinkey: async (el) => {
-      if (S.pinBuffer.length >= 4) return;
-      S.pinError = false;
-      S.pinBuffer += String(el.dataset.digit || "");
-      repaint(null);
-      if (S.pinBuffer.length === 4) {
-        if (S.pinSetupMode) {
-          await setSavedPin(S.pinBuffer);
-          S.pinSetupMode = false;
-          S.pinBuffer = "";
-          haptic("success");
-          toast("Новый PIN-код сохранён 🔐");
-          load({ anim: "fade" });
-          return;
-        }
-        if (await checkSavedPin(S.pinBuffer)) {
-          S.moneyUnlocked = true;
-          S.pinBuffer = "";
-          renderTabsBar();
-          haptic("success");
-          toast("Финансы разблокированы 🔓");
-          load({ anim: "fade" });
-        } else {
-          S.pinError = true;
-          haptic("error");
-          toast("Неверный PIN-код");
-          repaint(null);
-          setTimeout(() => { S.pinBuffer = ""; S.pinError = false; repaint(null); }, 420);
-        }
-      }
-    },
-    pinback: () => {
-      if (!S.pinBuffer.length) return;
-      S.pinBuffer = S.pinBuffer.slice(0, -1);
-      S.pinError = false;
-      repaint(null);
-    },
-    pinsetup: () => {
-      S.pinSetupMode = true;
-      S.pinBuffer = "";
-      S.pinError = false;
-      repaint("fade");
-    },
-    pincancel: () => {
-      S.pinSetupMode = false;
-      S.pinBuffer = "";
-      repaint("fade");
-    },
-    lockmoney: () => {
-      S.moneyUnlocked = false;
-      S.pinBuffer = "";
-      S.txFormOpen = false;
-      renderTabsBar();
-      toast("Раздел Финансы заблокирован 🔒");
-      repaint("fade");
-    },
-    hidebal: () => {
-      S.hideBalances = !S.hideBalances;
-      repaint(null);
-    },
     theme: () => {
       const nextLight = document.documentElement.dataset.theme !== "light";
       try { localStorage.setItem("jv2:theme", nextLight ? "light" : "dark"); } catch (e) { /* ignore */ }
@@ -1605,182 +872,6 @@ if (typeof document !== "undefined") {
       } catch (e) { /* сохранён локально */ }
       toast("Настройка сохранена ✅");
       haptic("success");
-    },
-    mperiod: (el) => { S.moneyPeriod = el.dataset.k; load({ anim: "fade" }); },
-    mtab: (el) => { S.moneyTab = el.dataset.k; repaint("fade"); },
-    toggleform: () => { S.txFormOpen = !S.txFormOpen; repaint("fade"); },
-    txkind: (el) => { S.txKind = el.dataset.k; repaint(null); },
-    togglestorno: () => { S.showStorno = !S.showStorno; load({ force: true, anim: "fade" }); },
-    txedit: (el) => {
-      const id = Number(el.dataset.id);
-      S.editTxId = S.editTxId === id ? null : id;
-      repaint(null);
-    },
-    txcorrect: async (el) => {
-      const id = Number(el.dataset.id);
-      const catEl = $(`editCat_${id}`), accEl = $(`editAcc_${id}`);
-      el.disabled = true;
-      try {
-        await post("money/tx/correct", {
-          id,
-          category: catEl ? catEl.value : null,
-          account: accEl ? accEl.value : null,
-        });
-        S.editTxId = null;
-        toast("Исправлено через сторно ✅");
-        haptic("success");
-        await load({ force: true, anim: "fade" });
-      } catch (err) {
-        toast((err && err.message) || "Не удалось исправить проводку");
-        haptic("error");
-      } finally {
-        el.disabled = false;
-      }
-    },
-    attachreceipt: (el) => { pickReceiptForEntry(Number(el.dataset.id)); },
-    openreceipt: async (el) => {
-      const url = el.dataset.url;
-      if (url) {
-        if (tg && tg.openLink) tg.openLink(url);
-        else window.open(url, "_blank");
-        return;
-      }
-      try {
-        const rec = await api(`money/receipt/${Number(el.dataset.id)}`, true);
-        if (rec && rec.gdrive_url) {
-          if (tg && tg.openLink) tg.openLink(rec.gdrive_url);
-          else window.open(rec.gdrive_url, "_blank");
-        } else if (rec) {
-          S.receiptModal = rec;
-          repaint(null);
-        }
-      } catch (err) {
-        toast("Не удалось открыть чек");
-      }
-    },
-    closereceipt: () => { S.receiptModal = null; repaint(null); },
-    txdetail: (el) => { S.detailTxId = Number(el.dataset.id); repaint(null); },
-    closedetail: () => { S.detailTxId = null; repaint(null); },
-    armpicker: () => { armFilePickerGuard(); },
-    sendreceipt: async (el) => {
-      if (el.disabled) return;
-      el.disabled = true;
-      try {
-        await post("money/receipt/send", { id: Number(el.dataset.id) });
-        toast("Чек отправлен в чат 📤");
-        haptic("success");
-      } catch (err) {
-        toast((err && err.message) || "Не удалось отправить чек в чат");
-        haptic("error");
-      } finally {
-        el.disabled = false;
-      }
-    },
-    debttoggle: (el) => {
-      const id = Number(el.dataset.id);
-      S.debtPayId = S.debtPayId === id ? null : id;
-      repaint(null);
-    },
-    txsubmit: async (el) => {
-      const amtEl = $("txAmount"), curEl = $("txCurrency"), catEl = $("txCategory"), accEl = $("txAccount"), toAccEl = $("txToAccount"), descEl = $("txDesc"), fileEl = $("txReceiptFile");
-      const amount = parseFloat(amtEl && amtEl.value);
-      if (!amount || amount <= 0) { toast("Введите сумму больше нуля"); return; }
-      const payload = {
-        kind: S.txKind,
-        amount,
-        currency: curEl ? curEl.value : "UZS",
-        category: S.txKind === "transfer" ? null : (catEl ? catEl.value : "другое"),
-        account: accEl ? accEl.value : "карта",
-        to_account: S.txKind === "transfer" && toAccEl ? toAccEl.value : null,
-        description: descEl ? descEl.value.trim() : "",
-      };
-      el.disabled = true;
-      try {
-        const res = await post("money/tx", payload);
-        const file = fileEl && fileEl.files && fileEl.files[0];
-        if (file && res && res.tx && res.tx.id) {
-          const packed = await compressReceiptFile(file);
-          await post("money/receipt", { entry_id: res.tx.id, ...packed });
-        }
-        S.txFormOpen = false;
-        toast(file ? "Проводка и чек сохранены ✅" : "Проводка проведена ✅");
-        haptic("success");
-        await load({ force: true, anim: "fade" });
-      } catch (err) {
-        toast((err && err.message) || "Ошибка при сохранении");
-        haptic("error");
-      } finally {
-        el.disabled = false;
-      }
-    },
-    debtclose: async (el) => {
-      if (el.disabled) return;
-      const id = Number(el.dataset.id);
-      const amtEl = $(`debtAmt_${id}`), accEl = $(`debtAcc_${id}`);
-      const amount = amtEl ? parseFloat(amtEl.value) : 0;
-      const account = accEl ? accEl.value : "карта";
-      el.disabled = true;
-      try {
-        await post("money/debt/settle", { id, amount: amount > 0 ? amount : null, account });
-        S.debtPayId = null;
-        toast(`Возврат по долгу «${el.dataset.person}» проведён ✅`);
-        haptic("success");
-        await load({ force: true, anim: "fade" });
-      } catch (err) {
-        toast((err && err.message) || "Не удалось провести возврат");
-      } finally {
-        el.disabled = false;
-      }
-    },
-    txvoid: async (el) => {
-      if (el.disabled) return;
-      el.disabled = true;
-      try {
-        await post("money/tx/void", { id: Number(el.dataset.id) });
-        toast("Сторно проведено ↩︎");
-        haptic("success");
-        await load({ force: true, anim: "fade" });
-      } catch (err) {
-        toast((err && err.message) || "Не удалось провести сторно");
-      } finally {
-        el.disabled = false;
-      }
-    },
-    subpay: async (el) => {
-      const d = el.dataset;
-      el.disabled = true;
-      try {
-        await post("money/subscription/charge", { id: Number(d.id) });
-        toast(`Списание «${d.title}» записано ✅`);
-        haptic("success");
-        S.moneyTab = "ops";
-        await load({ force: true, anim: "fade" });
-      } catch (err) {
-        toast((err && err.message) || "Не удалось записать списание");
-      } finally {
-        el.disabled = false;
-      }
-    },
-    contractpay: async (el) => {
-      const amount = parseFloat(el.dataset.amount);
-      if (!amount) return;
-      el.disabled = true;
-      try {
-        await post("money/tx", {
-          kind: "expense",
-          amount,
-          currency: "UZS",
-          category: "учёба",
-          account: "карта",
-          description: "Оплата контракта HEMIS (ежемесячный план)",
-        });
-        toast("Платёж по контракту записан в Финансы ✅");
-        haptic("success");
-      } catch (err) {
-        toast("Не удалось записать платёж");
-      } finally {
-        el.disabled = false;
-      }
     },
     tasktab: (el) => { S.taskTab = el.dataset.k; repaint("fade"); },
     reskind: (el) => { S.resKind = el.dataset.k; repaint("fade"); },
@@ -1882,50 +973,14 @@ if (typeof document !== "undefined") {
     tg.onEvent && tg.onEvent("themeChanged", setThemeFromEnv);
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
-  initBiometrics();
   setThemeFromEnv();
   load();
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      if (S.pickingFile) return; // Не запираем Финансы, пока открыт системный выбор файла чека
-      S.moneyUnlocked = false;
-      S.pinBuffer = "";
-    } else {
-      if (S.pickingFile) {
-        releaseFilePickerGuard();
-        return;
-      }
-      load({ anim: null });
-    }
+    if (!document.hidden) load({ anim: null });
   });
 }
 
 // ---------------------------------------------------------------- интерактивное демо-состояние (все 8 семестров: 11..18)
-const demoMoneyState = {
-  accounts: [
-    { id: 1, name: "карта", icon: "💳", balance: 1485000 },
-    { id: 2, name: "наличные", icon: "💵", balance: 320000 },
-  ],
-  recent: [
-    { id: 108, kind: "expense", amount: 68000, category: "продукты", account: "карта", description: "Корзинка (молоко, фрукты, хлеб)", created_at: "2026-11-13T12:40:00+05:00" },
-    { id: 107, kind: "expense", amount: 24000, category: "транспорт", account: "карта", description: "Yandex Go до университета", created_at: "2026-11-13T08:10:00+05:00" },
-    { id: 106, kind: "expense", amount: 42000, category: "еда", account: "наличные", description: "Обед с однокурсниками", created_at: "2026-11-12T13:30:00+05:00" },
-    { id: 105, kind: "income", amount: 850000, category: "стипендия", account: "карта", description: "Стипендия за ноябрь", created_at: "2026-11-10T16:15:00+05:00" },
-    { id: 104, kind: "expense", amount: 257000, category: "подписки", account: "карта", description: "Подписка ChatGPT Plus [20 USD × 12850]", created_at: "2026-11-08T19:00:00+05:00" },
-    { id: 103, kind: "expense", amount: 195000, category: "продукты", account: "карта", description: "Закупка в Makro", created_at: "2026-11-05T18:20:00+05:00" },
-    { id: 102, kind: "expense", amount: 90000, category: "учёба", account: "наличные", description: "Распечатка материалов и тетради", created_at: "2026-11-03T11:00:00+05:00" },
-  ],
-  debts: [
-    { id: 1, person: "Алишер", amount: 120000, direction: "given", description: "Одолжил на билеты и обед", due_date: "2026-11-20" },
-    { id: 2, person: "Сардор", amount: 45000, direction: "taken", description: "Скинулись за такси вечером", due_date: "2026-11-16" },
-  ],
-  subscriptions: [
-    { id: 1, title: "Тариф Beeline + Интернет", amount: 85000, currency: "UZS", category: "связь", billing_day: 1 },
-    { id: 2, title: "ChatGPT Plus / Claude", amount: 20, currency: "USD", category: "подписки", billing_day: 15 },
-    { id: 3, title: "Yandex Plus", amount: 29900, currency: "UZS", category: "подписки", billing_day: 22 },
-  ],
-};
-
 const demoToggleState = {
   // Ветвь «Бот»
   bot_briefing_on: true,
@@ -2011,86 +1066,7 @@ function demoApi(path, method, body) {
       if (body.pref_key) saveNotifPref(body.pref_key, body.pref_value);
       return wait({ ok: true });
     }
-    if (kind === "money/debt/settle" && body) {
-      demoMoneyState.debts = (demoMoneyState.debts || []).filter((x) => x.id !== body.id);
-      return wait({ ok: true });
-    }
-    if (kind === "money/tx/void" && body) {
-      const tx = demoMoneyState.recent.find((x) => x.id === body.id);
-      if (tx) {
-        const acc = demoMoneyState.accounts.find((a) => a.name === tx.account);
-        if (acc) acc.balance += tx.kind === "income" ? -tx.amount : tx.kind === "expense" ? tx.amount : 0;
-        demoMoneyState.recent = demoMoneyState.recent.filter((x) => x.id !== body.id);
-      }
-      return wait({ ok: true });
-    }
-    if (kind === "money/subscription/charge" && body) {
-      const sub = (demoMoneyState.subscriptions || []).find((x) => x.id === body.id);
-      if (sub) return demoApi("money/tx", "POST", { kind: "expense", amount: sub.amount, currency: sub.currency, category: sub.category, account: "карта", description: `Подписка: ${sub.title}` });
-      return wait({ ok: true });
-    }
-    if (kind === "money/tx" && body) {
-      const fxMap = { UZS: 1, USD: 12850, EUR: 13800, RUB: 132 };
-      const rate = fxMap[body.currency] || 1;
-      const amtUzs = Math.round((+body.amount || 0) * rate);
-      const desc = body.currency && body.currency !== "UZS"
-        ? `${body.description || body.category || "Операция"} [${body.amount} ${body.currency} × ${rate}]`
-        : (body.description || body.category || "Операция");
-      const acc = demoMoneyState.accounts.find((a) => a.name === body.account) || demoMoneyState.accounts[0];
-      if (body.kind === "income") acc.balance += amtUzs;
-      else if (body.kind === "transfer") {
-        const other = demoMoneyState.accounts.find((a) => a.id !== acc.id) || demoMoneyState.accounts[1];
-        acc.balance -= amtUzs;
-        if (other) other.balance += amtUzs;
-      } else {
-        acc.balance -= amtUzs;
-      }
-      demoMoneyState.recent.unshift({
-        id: Date.now() % 100000,
-        kind: body.kind || "expense",
-        amount: amtUzs,
-        category: body.category || "другое",
-        account: acc.name,
-        to_account: body.kind === "transfer" ? (acc.name === "карта" ? "наличные" : "карта") : null,
-        description: desc,
-        created_at: `${today}T14:30:00+05:00`,
-      });
-    }
     return wait({ ok: true });
-  }
-
-  if (kind === "money/overview") {
-    const totalBal = demoMoneyState.accounts.reduce((s, a) => s + a.balance, 0);
-    const byCat = {};
-    let totalExp = 0, totalInc = 0;
-    demoMoneyState.recent.forEach((tx) => {
-      if (tx.kind === "expense") {
-        totalExp += tx.amount;
-        byCat[tx.category] = byCat[tx.category] || [0, 0];
-        byCat[tx.category][0] += tx.amount;
-        byCat[tx.category][1] += 1;
-      } else if (tx.kind === "income") {
-        totalInc += tx.amount;
-      }
-    });
-    const catList = Object.entries(byCat).map(([k, [amt, n]]) => [k, amt, n]).sort((a, b) => b[1] - a[1]);
-    const perDay = Math.round(totalExp / 13);
-    return wait({
-      balances: { accounts: demoMoneyState.accounts, total: totalBal },
-      summary: {
-        period: q.get("period") || "month",
-        title: "за ноябрь",
-        expense: totalExp,
-        income: totalInc,
-        expense_by_category: catList,
-        per_day: perDay,
-        projected_month: perDay * 30,
-        safe_daily: Math.max(25000, Math.round((2000000 - totalExp) / 17)),
-      },
-      recent: demoMoneyState.recent,
-      debts: demoMoneyState.debts,
-      subscriptions: demoMoneyState.subscriptions,
-    });
   }
 
   if (kind === "schedule") {
@@ -2181,4 +1157,4 @@ function demoApi(path, method, body) {
   return wait({});
 }
 
-if (typeof module !== "undefined") module.exports = { nowTk, lessonState, hhmm, lessonCard, mondayOf, normalizeSemesters, renderSchedule, renderNb, renderExams, renderGrades, renderMoney, renderVaultGate, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, esc, pathFor, minutesLeft, leftLabel, heroFor };
+if (typeof module !== "undefined") module.exports = { nowTk, lessonState, hhmm, lessonCard, mondayOf, normalizeSemesters, renderSchedule, renderNb, renderExams, renderGrades, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, esc, pathFor, minutesLeft, leftLabel, heroFor };
