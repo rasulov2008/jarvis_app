@@ -1,10 +1,7 @@
-/* Helper · Учёба — Telegram Mini App.
-   - Безрамочный полноэкранный режим (Bot API 8.0 requestFullscreen + disableVerticalSwipes)
-   - Переключение всех 8 семестров во вкладке НБ и вывод «Нет пропусков» при отсутствии данных
-   - Две ветви уведомлений («Бот» и «HEMIS»): опрос HEMIS каждые 20 мин в окне 05:40–23:00 (Ташкент) и тихий час 23:30–05:50 */
+/* Jarvis · Учёба — Telegram Mini App v3 (Priority-First Pulse Dashboard + Instant Cold Start) */
 "use strict";
 
-// ---------------------------------------------------------------- утилиты
+// ---------------------------------------------------------------- utilities
 const tg = typeof window !== "undefined" ? window.Telegram && window.Telegram.WebApp : null;
 const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
 const API = ((params.get("api") || (typeof window !== "undefined" && window.APP_CONFIG && window.APP_CONFIG.API_URL) || "") + "").replace(/\/$/, "");
@@ -15,10 +12,11 @@ const pad = (n) => String(n).padStart(2, "0");
 const WD = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const MON = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 const iso = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-const parseISO = (s) => { const [y, m, d] = String(s || "2026-11-13").slice(0, 10).split("-").map(Number); return new Date(Date.UTC(y || 2026, (m || 1) - 1, d || 1)); };
+const parseISO = (s) => { const [y, m, d] = String(s || "2026-11-28").slice(0, 10).split("-").map(Number); return new Date(Date.UTC(y || 2026, (m || 1) - 1, d || 1)); };
 const addDays = (d, n) => new Date(d.getTime() + n * 864e5);
 const dm = (s) => `${String(s || "").slice(8, 10)}.${String(s || "").slice(5, 7)}`;
 const toMin = (t) => { const [h, m] = String(t || "0:0").split(":"); return Number(h) * 60 + Number(m); };
+const hhmm = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const num = (x) => (x == null ? "—" : Number.isInteger(+x) ? String(+x) : (+x).toFixed(1).replace(/\.0$/, ""));
 const money = (x) => (x == null ? "—" : Math.round(+x).toLocaleString("ru-RU").replace(/\u00a0/g, " "));
 const plural = (n, a, b, c) => { const m = Math.abs(n) % 100, k = m % 10; return m > 10 && m < 20 ? c : k === 1 ? a : k > 1 && k < 5 ? b : c; };
@@ -26,7 +24,6 @@ const pairsWord = (n) => `${n} ${plural(n, "пару", "пары", "пар")}`;
 const semNo = (code) => Number(code) - 10;
 const sizeKb = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} МБ` : `${Math.max(1, Math.round(b / 1024))} КБ`);
 
-// Все 8 семестров бакалавриата (коды HEMIS 11..18 -> 1..8 семестр)
 const ALL_SEM_CODES = ["11", "12", "13", "14", "15", "16", "17", "18"];
 function normalizeSemesters(sems) {
   const cur = String((sems && sems.current) || "13");
@@ -38,24 +35,24 @@ function normalizeSemesters(sems) {
 }
 
 function nowTk() {
-  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  const p = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
   const g = (t) => Number(p.find((x) => x.type === t).value);
   return { iso: `${g("year")}-${pad(g("month"))}-${pad(g("day"))}`, min: (g("hour") % 24) * 60 + g("minute") };
 }
 const mondayOf = (offset) => { const b = parseISO(nowTk().iso); return iso(addDays(b, -((b.getUTCDay() + 6) % 7) + 7 * offset)); };
 
 const ICON = {
+  pulse: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/>',
-  nb: '<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
-  exam: '<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 3h6v3H9zM9 14l2 2 4-4"/>',
-  grades: '<circle cx="12" cy="9" r="6"/><path d="M8.5 14.5 7 22l5-3 5 3-1.5-7.5"/>',
+  study: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/>',
   more: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
   left: '<path d="M15 18l-6-6 6-6"/>', right: '<path d="M9 18l6-6-6-6"/>',
   pin: '<path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  tasks: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M9 7h6"/>',
   layers: '<path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/>',
   wallet: '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h18M16 15h2"/>',
@@ -64,33 +61,30 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
-  check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  download: '<path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
   moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
 };
-const HERO_ICON = { schedule: "calendar", nb: "nb", exams: "exam", grades: "grades", more: "more", tasks: "tasks", resources: "book", subjects: "layers", contract: "wallet", settings: "bell" };
-const ico = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name] || ICON.calendar}</svg>`;
+const ico = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name] || ICON.pulse}</svg>`;
 
-// ---------------------------------------------------------------- состояние и кэш
+// ---------------------------------------------------------------- state & cache
 const TABS = [
+  { id: "pulse", label: "Главное", icon: "pulse" },
   { id: "schedule", label: "Расписание", icon: "calendar" },
-  { id: "nb", label: "НБ", icon: "nb" },
-  { id: "grades", label: "Оценки", icon: "grades" },
+  { id: "study", label: "Учёба", icon: "study" },
   { id: "more", label: "Ещё", icon: "more" },
 ];
 
 const SEM_SCREENS = new Set(["nb", "exams", "grades", "subjects", "tasks", "resources"]);
 
 const S = {
-  tab: "schedule",
+  tab: "pulse",
+  studyTab: "grades", // grades | nb | exams | tasks
   sub: null,
   week: 0,
   day: null,
   sem: {},
   examTab: null,
-  notifBranch: "bot",    // bot | hemis (две ветви уведомлений)
+  notifBranch: "bot",
   taskTab: "active",
   resKind: "all",
   res: { subject: null, name: "" },
@@ -111,33 +105,28 @@ const TTL = {
 };
 const LS = "jv2:";
 const mem = new Map();
+const inflight = new Map();
 
 const DEFAULT_NOTIF_PREFS = {
-  // Ветвь «Бот Джарвис» (время и частота, тихий час 23:30–05:50)
   bot_morning_time: "06:00",
   bot_evening_time: "23:00",
   bot_quiet_hours: "23:30-05:50",
-  // Ветвь «HEMIS» (время и частота, опрос каждые 20 мин в 05:40–23:00 по Ташкенту)
   hemis_morning_time: "06:30",
   hemis_prep_time: "16:00",
-  hemis_before_min: "10",           // 5 | 10 | 15 | 30
-  hemis_poll_freq: "20m_540_2300",  // 20m_540_2300 | 15m | 30m | 1h
-  hemis_deadline_freq: "standard",  // intensive | standard | minimal
+  hemis_before_min: "10",
+  hemis_poll_freq: "20m_540_2300",
+  hemis_deadline_freq: "standard",
 };
 
 function getNotifPrefs(serverPrefs) {
   let saved = {};
-  try {
-    const raw = typeof localStorage !== "undefined" && localStorage.getItem(LS + "notif_prefs");
-    if (raw) saved = JSON.parse(raw) || {};
-  } catch (e) { /* ignore */ }
+  try { saved = JSON.parse((typeof localStorage !== "undefined" && localStorage.getItem(LS + "notif_prefs")) || "{}") || {}; } catch (e) { /* ignore */ }
   const merged = { ...DEFAULT_NOTIF_PREFS, ...(serverPrefs || {}), ...saved };
   if (merged.bot_quiet_hours === "23:00-07:00") merged.bot_quiet_hours = "23:30-05:50";
   if (merged.hemis_poll_freq === "30m") merged.hemis_poll_freq = "20m_540_2300";
   return merged;
 }
 function saveNotifPref(key, val) {
-  // В localStorage кладём только изменённое пользователем: остальное приходит с сервера (там реальные значения бота)
   let saved = {};
   try { saved = JSON.parse((typeof localStorage !== "undefined" && localStorage.getItem(LS + "notif_prefs")) || "{}") || {}; } catch (e) { /* ignore */ }
   saved[key] = String(val);
@@ -163,30 +152,64 @@ function cset(path, data) {
     try { Object.keys(localStorage).filter((k) => k.startsWith(LS) && !["jv2:theme", "jv2:notif_prefs"].includes(k)).forEach((k) => localStorage.removeItem(k)); write(); } catch (err2) { /* ignore */ }
   }
 }
-const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "только что" : m < 60 ? `${m} мин назад` : m < 1440 ? `${Math.round(m / 60)} ч назад` : `${Math.round(m / 1440)} дн. назад`; };
+const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "сейчас" : m < 60 ? `${m}м` : m < 1440 ? `${Math.round(m / 60)}ч` : `${Math.round(m / 1440)}д`; };
 
 let reqId = 0;
 
-// ---------------------------------------------------------------- сеть
+// ---------------------------------------------------------------- network (boot prefetch + dedup + timeout)
 async function request(method, path, body, force) {
   if (DEMO) return demoApi(path, method, body);
   if (!API) throw { kind: "noapi" };
+
+  if (method === "GET" && !force && typeof window !== "undefined" && window.__BOOT_FETCH__ && window.__BOOT_FETCH__[path]) {
+    const boot = window.__BOOT_FETCH__[path];
+    delete window.__BOOT_FETCH__[path];
+    const pre = await boot;
+    if (pre) return pre;
+  }
+
+  const dedupKey = method === "GET" && !force ? path : null;
+  if (dedupKey && inflight.has(dedupKey)) return inflight.get(dedupKey);
+
   const url = `${API}/api/${path}${force ? (path.includes("?") ? "&" : "?") + "r=1" : ""}`;
   const headers = { "X-Telegram-Init-Data": tg.initData };
   if (body) headers["Content-Type"] = "application/json";
-  let res;
-  try { res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined }); } catch (e) { throw { kind: "network" }; }
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}));
-    throw { kind: j.error || "http", message: j.message };
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+
+  const p = (async () => {
+    let res;
+    try {
+      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: ctrl.signal });
+    } catch (e) {
+      throw { kind: "network" };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw { kind: res.status === 401 ? "unauthorized" : (j.error || "http"), message: j.message };
+    }
+    return res.json();
+  })();
+
+  if (dedupKey) {
+    inflight.set(dedupKey, p);
+    p.finally(() => inflight.delete(dedupKey));
   }
-  return res.json();
+  return p;
 }
 const api = (path, force) => request("GET", path, null, force);
 const post = (path, body) => request("POST", path, body);
 
-// ---------------------------------------------------------------- пути запросов по экранам
+// ---------------------------------------------------------------- routing
 const semQ = (id) => (S.sem[id] ? `semester=${S.sem[id]}` : "");
+function current() {
+  if (S.sub) return S.sub;
+  if (S.tab === "study") return S.studyTab;
+  return S.tab;
+}
 function pathFor(id) {
   switch (id) {
     case "schedule": return `schedule?week=${S.week}&m=${mondayOf(S.week)}`;
@@ -197,10 +220,13 @@ function pathFor(id) {
     default: return null;
   }
 }
-const current = () => S.sub || S.tab;
 const ttlOf = (id) => (id === "subjects" ? TTL.grades : TTL[id] ?? 0);
 
-// ---------------------------------------------------------------- общие блоки и 8-семестровый переключатель
+// ---------------------------------------------------------------- shared UI primitives
+const empty = (emoji, title, text) => `<div class="card empty-box"><div class="big">${emoji}</div><b>${esc(title)}</b>${text ? `<p class="muted small">${esc(text)}</p>` : ""}</div>`;
+const seg = (items, active, action) => `<div class="seg">${items.map(([k, t, sub]) => `<button class="${k === active ? "on" : ""}" data-a="${action}" data-k="${k}">${esc(t)}${sub != null && sub !== "" ? `<small>${esc(sub)}</small>` : ""}</button>`).join("")}</div>`;
+const fileList = (files) => files && files.length ? `<div class="files">${files.map((f) => `<div class="file">${ico("file")}<span>${esc(f.name)}</span><small>${sizeKb(f.size)}</small></div>`).join("")}</div>` : "";
+
 function pager({ label, sub, prev, next, action }) {
   return `<div class="card pager">
     <button class="pg-btn" data-a="${action}" data-dir="-1" ${prev ? "" : "disabled"} aria-label="Назад">${ico("left")}</button>
@@ -215,36 +241,186 @@ function semPager(sems, cur) {
   const i = norm.codes.indexOf(active);
   const sNum = semNo(active);
   const courseNo = Math.ceil(sNum / 2);
-  const statusLbl = active === norm.current
-    ? `${courseNo}-й курс · Текущий`
-    : Number(active) < Number(norm.current)
-      ? `${courseNo}-й курс · Прошедший`
-      : `${courseNo}-й курс · Учебный план`;
-  const prev = i > 0;
-  const next = i >= 0 && i < norm.codes.length - 1;
+  const statusLbl = active === norm.current ? `${courseNo}-й курс · Текущий` : Number(active) < Number(norm.current) ? `${courseNo}-й курс · Прошедший` : `${courseNo}-й курс · План`;
   const strip = norm.codes.map((code) => {
     const n = semNo(code);
-    const isOn = code === active ? "on" : "";
-    const isCur = code === norm.current ? "cur" : "";
-    return `<button class="sem-pill ${isOn} ${isCur}" data-a="semjump" data-code="${code}" title="${n}-й семестр">${n}</button>`;
+    return `<button class="sem-pill ${code === active ? "on" : ""} ${code === norm.current ? "cur" : ""}" data-a="semjump" data-code="${code}">${n}</button>`;
   }).join("");
-  return `<div class="card sem-card">
+  return `<div class="card">
     <div class="pager">
-      <button class="pg-btn" data-a="sem" data-dir="-1" ${prev ? "" : "disabled"} aria-label="Предыдущий семестр">${ico("left")}</button>
-      <div class="mid"><b>${sNum}-й семестр (из ${norm.codes.length})</b><span>${esc(statusLbl)}</span></div>
-      <button class="pg-btn" data-a="sem" data-dir="1" ${next ? "" : "disabled"} aria-label="Следующий семестр">${ico("right")}</button>
+      <button class="pg-btn" data-a="sem" data-dir="-1" ${i > 0 ? "" : "disabled"}>${ico("left")}</button>
+      <div class="mid"><b>${sNum}-й семестр</b><span>${esc(statusLbl)}</span></div>
+      <button class="pg-btn" data-a="sem" data-dir="1" ${i >= 0 && i < norm.codes.length - 1 ? "" : "disabled"}>${ico("right")}</button>
     </div>
-    <div class="sem-strip" role="tablist" aria-label="Выбор семестра 1–8">${strip}</div>
+    <div class="sem-strip">${strip}</div>
   </div>`;
 }
 
-const empty = (emoji, title, text) => `<div class="card empty-hint"><div class="big">${emoji}</div><b>${esc(title)}</b><p class="muted small">${esc(text || "")}</p></div>`;
-const seg = (items, active, action) => `<div class="seg">${items.map(([k, t, sub]) => `<button class="${k === active ? "on" : ""}" data-a="${action}" data-k="${k}">${esc(t)}${sub != null && sub !== "" ? `<small>${esc(sub)}</small>` : ""}</button>`).join("")}</div>`;
-const fileList = (files) => files && files.length ? `<div class="files">${files.map((f) => `<div class="file">${ico("file")}<span>${esc(f.name)}</span><small>${sizeKb(f.size)}</small></div>`).join("")}</div>` : "";
+// ---------------------------------------------------------------- Tab 1: Главное (Priority Pulse Dashboard)
+function minutesLeft(deadline) {
+  if (!deadline) return null;
+  const now = nowTk(), dayDiff = Math.round((parseISO(deadline.slice(0, 10)) - parseISO(now.iso)) / 864e5);
+  return dayDiff * 1440 + toMin(deadline.slice(11)) - now.min;
+}
+function leftLabel(m) {
+  const a = Math.abs(m), t = a < 60 ? `${a} мин` : a < 2880 ? `${Math.floor(a / 60)} ч` : `${Math.floor(a / 1440)} дн.`;
+  return m < 0 ? `просрочено ${t}` : `через ${t}`;
+}
 
-// ---------------------------------------------------------------- расписание (без экзаменов)
+function renderPulse(bundle) {
+  const { schedule, tasks, nb, exams, grades } = bundle || {};
+  const now = nowTk(), today = now.iso;
+  const tomorrow = iso(addDays(parseISO(today), 1));
+  const lessons = (schedule && schedule.lessons) || [];
+  const todayLessons = lessons.filter((l) => l.date === today).sort((a, b) => toMin(a.start) - toMin(b.start));
+  const tomorrowLessons = lessons.filter((l) => l.date === tomorrow).sort((a, b) => toMin(a.start) - toMin(b.start));
+
+  // 1. Hero: Live class OR Next class OR Tomorrow preview
+  const live = todayLessons.find((l) => now.min >= toMin(l.start) && now.min < toMin(l.end));
+  const next = todayLessons.find((l) => toMin(l.start) > now.min);
+
+  let heroHtml = "";
+  if (live) {
+    const a = toMin(live.start), b = toMin(live.end);
+    const pct = Math.max(4, Math.min(100, Math.round(((now.min - a) / Math.max(b - a, 1)) * 100)));
+    const leftMin = Math.max(1, b - now.min);
+    const place = [live.room, live.building].filter(Boolean).join(" · ");
+    heroHtml = `<div class="pulse-hero">
+      <div class="pulse-kicker"><span class="live-dot"></span>Идёт сейчас · ещё ${leftMin} мин</div>
+      <div class="pulse-title">${esc(live.subject)}</div>
+      <div class="pulse-meta">
+        <span>${ico("clock")}${esc(live.start)}–${esc(live.end)}</span>
+        ${place ? `<span>${ico("pin")}${esc(place)}</span>` : ""}
+        ${live.teacher ? `<span>${ico("user")}${esc(live.teacher)}</span>` : ""}
+      </div>
+      <div class="pulse-prog"><i style="width:${pct}%"></i></div>
+    </div>`;
+  } else if (next) {
+    const waitMin = toMin(next.start) - now.min;
+    const waitTxt = waitMin < 60 ? `через ${waitMin} мин` : `в ${next.start}`;
+    const place = [next.room, next.building].filter(Boolean).join(" · ");
+    heroHtml = `<div class="pulse-hero">
+      <div class="pulse-kicker">Следующая пара · ${esc(waitTxt)}</div>
+      <div class="pulse-title">${esc(next.subject)}</div>
+      <div class="pulse-meta">
+        <span>${ico("clock")}${esc(next.start)}–${esc(next.end)}</span>
+        ${place ? `<span>${ico("pin")}${esc(place)}</span>` : ""}
+        ${next.teacher ? `<span>${ico("user")}${esc(next.teacher)}</span>` : ""}
+      </div>
+    </div>`;
+  } else {
+    const firstTom = tomorrowLessons[0];
+    heroHtml = `<div class="pulse-hero calm">
+      <div class="pulse-kicker">${todayLessons.length ? "На сегодня пары закончились" : "Сегодня свободный день"}</div>
+      <div class="pulse-title">${firstTom ? `Завтра в ${esc(firstTom.start)} — ${esc(firstTom.subject)}` : "Можно спокойно закрыть задачи"}</div>
+      ${firstTom ? `<div class="pulse-meta"><span>${ico("clock")}${tomorrowLessons.length} ${plural(tomorrowLessons.length, "пара", "пары", "пар")} завтра</span>${firstTom.room ? `<span>${ico("pin")}${esc(firstTom.room)}</span>` : ""}</div>` : ""}
+    </div>`;
+  }
+
+  // 2. Bento 3-Tile KPI Strip
+  const gpaVal = grades && grades.perf && grades.perf.gpa_calc != null ? grades.perf.gpa_calc : "—";
+  const nbRows = (nb && nb.report && nb.report.rows) || [];
+  const nbTotal = nb && nb.report ? Number(nb.report.total_hours || 0) : null;
+  const nbFail = nbRows.some((r) => r.status === "fail");
+  const nbWarn = nbRows.some((r) => r.status === "warn");
+  const nbTone = nbFail ? "bad" : nbWarn ? "warn" : nbTotal === 0 ? "ok" : "";
+
+  const upExams = ((exams && exams.exams) || []).filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+  const nextEx = upExams[0];
+  const exDays = nextEx ? Math.round((parseISO(nextEx.date) - parseISO(today)) / 864e5) : null;
+  const exVal = nextEx ? (exDays === 0 ? "Сегодня" : exDays === 1 ? "Завтра" : `${exDays} дн.`) : "—";
+  const exTone = exDays != null && exDays <= 3 ? "warn" : "";
+
+  const bentoHtml = `<div class="bento-3">
+    <button class="bento-tile" data-a="jumpstudy" data-k="grades">
+      <b>${gpaVal}</b>
+      <span>GPA семестра</span>
+    </button>
+    <button class="bento-tile ${nbTone}" data-a="jumpstudy" data-k="nb">
+      <b>${nbTotal != null ? `${num(nbTotal)} ч` : "—"}</b>
+      <span>${nbFail ? "НБ · лимит!" : nbWarn ? "НБ · риск" : "Пропуски НБ"}</span>
+    </button>
+    <button class="bento-tile ${exTone}" data-a="jumpstudy" data-k="exams">
+      <b>${exVal}</b>
+      <span>Ближ. экзамен</span>
+    </button>
+  </div>`;
+
+  // 3. Priority Alerts (NB risks + Urgent tasks + Nearest exam <= 7d)
+  const alerts = [];
+  nbRows.filter((r) => r.status === "fail" || r.status === "warn").forEach((r) => {
+    alerts.push({
+      tone: r.status === "fail" ? "bad" : "warn",
+      title: `НБ: ${r.subject}`,
+      sub: `${num(r.hours)} / ${num(r.limit_hours)} ч · ${r.status === "fail" ? "лимит превышен" : `осталось ${pairsWord(r.left_pairs)}`}`,
+      pill: r.status === "fail" ? "Лимит" : "Риск",
+      pillTone: r.status === "fail" ? "tone-bad" : "tone-warn",
+      target: "nb",
+    });
+  });
+
+  const activeTasks = ((tasks && tasks.tasks) || [])
+    .filter((t) => !t.graded && !t.sent_at)
+    .map((t) => ({ ...t, mLeft: minutesLeft(t.deadline) }))
+    .sort((a, b) => (a.mLeft ?? 9e9) - (b.mLeft ?? 9e9));
+
+  activeTasks.slice(0, 3).forEach((t) => {
+    const overdue = t.overdue || (t.mLeft != null && t.mLeft < 0);
+    const soon = t.mLeft != null && t.mLeft >= 0 && t.mLeft < 2880;
+    alerts.push({
+      tone: overdue ? "bad" : soon ? "warn" : "accent",
+      title: t.title,
+      sub: `${t.subject}${t.deadline ? ` · до ${dm(t.deadline)}` : ""}`,
+      pill: t.mLeft != null ? leftLabel(t.mLeft) : "Задание",
+      pillTone: overdue ? "tone-bad" : soon ? "tone-warn" : "",
+      target: "tasks",
+    });
+  });
+
+  if (nextEx && exDays <= 7) {
+    alerts.push({
+      tone: exDays <= 2 ? "bad" : "warn",
+      title: `Экзамен: ${nextEx.subject}`,
+      sub: `${dm(nextEx.date)} · ${nextEx.start}${nextEx.room ? ` · ауд. ${nextEx.room}` : ""}`,
+      pill: exDays === 0 ? "Сегодня" : exDays === 1 ? "Завтра" : `через ${exDays} дн.`,
+      pillTone: exDays <= 2 ? "tone-bad" : "tone-warn",
+      target: "exams",
+    });
+  }
+
+  let alertsHtml = `<div class="section-hd">
+    <h2>Самое важное</h2>
+    ${activeTasks.length ? `<button class="link-btn" data-a="jumpstudy" data-k="tasks">Все задачи →</button>` : ""}
+  </div>`;
+  if (!alerts.length) {
+    alertsHtml += `<div class="card between small"><span class="muted">Срочных дедлайнов и рисков по НБ нет</span><span class="pill tone-ok">Всё чисто</span></div>`;
+  } else {
+    alertsHtml += `<div class="card flush">${alerts.map((a) => `<button class="alert-row" data-a="jumpstudy" data-k="${a.target}">
+      <span class="alert-dot ${a.tone}"></span>
+      <span class="grow" style="min-width:0">
+        <b style="display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.title)}</b>
+        <span class="tiny muted">${esc(a.sub)}</span>
+      </span>
+      <span class="pill ${a.pillTone}">${esc(a.pill)}</span>
+    </button>`).join("")}</div>`;
+  }
+
+  // 4. Today's Schedule Compact Timeline
+  let schedHtml = `<div class="section-hd">
+    <h2>Пары сегодня${todayLessons.length ? ` · ${todayLessons.length}` : ""}</h2>
+    <button class="link-btn" data-a="tab" data-tab="schedule">Неделя →</button>
+  </div>`;
+  if (!todayLessons.length) {
+    schedHtml += `<div class="card small muted" style="text-align:center">Сегодня занятий по расписанию нет</div>`;
+  } else {
+    schedHtml += todayLessons.map((l) => lessonCard(l, lessonState(l, true, now.min))).join("");
+  }
+
+  return heroHtml + bentoHtml + alertsHtml + schedHtml;
+}
+
+// ---------------------------------------------------------------- Tab 2: Расписание
 const typeClass = (t) => { const x = (t || "").toLowerCase(); return x.includes("лек") || x.includes("lec") ? "tag-lec" : x.includes("лаб") || x.includes("lab") ? "tag-lab" : "tag-prac"; };
-const hhmm = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 
 function lessonState(l, isToday, nowMin) {
   if (!isToday) return { state: "future", pct: 0 };
@@ -262,69 +438,72 @@ function lessonCard(l, st) {
   const rows = [["Время", `${l.start}–${l.end}${dur > 0 ? ` · ${dur} мин` : ""}`], ["Пара", no ? `${no}-я` : ""], ["Тип", l.type], ["Аудитория", l.room], ["Корпус", l.building], ["Преподаватель", l.teacher], ["Группа", l.group]].filter(([, v]) => v);
   const prev = S.pct[key] ?? 0;
   if (st.state === "now") S.pct[key] = st.pct;
-  const prog = st.state === "now" ? `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${st.pct}"><i style="width:${prev}%" data-w="${st.pct}"></i></div>` : "";
-  const chips = `${no ? `<span class="num">${esc(no)}</span>` : ""}${l.type ? `<span class="tag ${typeClass(l.type)}">${esc(l.type)}</span>` : ""}`
-    + (st.state === "now" ? '<span class="tag tag-now"><i></i>Идёт сейчас</span>' : st.state === "past" ? `<span class="done">${ico("check")}Завершена</span>` : "");
+  const prog = st.state === "now" ? `<div class="progress"><i style="width:${prev}%" data-w="${st.pct}"></i></div>` : "";
+  const chips = `${no ? `<span class="chip">${esc(no)} пара</span>` : ""}${l.type ? `<span class="tag ${typeClass(l.type)}">${esc(l.type)}</span>` : ""}${st.state === "now" ? '<span class="tag tag-now">Сейчас</span>' : ""}`;
   return `<div class="card lesson ${st.state} ${open ? "open" : ""}">
     <div class="lesson-main" data-a="lesson" data-key="${esc(key)}" role="button" tabindex="0" aria-expanded="${open}">
-      <div class="l-time"><b>${esc(l.start)}</b><span>${esc(l.end)}</span></div><div class="l-sep"></div>
-      <div class="l-body"><div class="chips">${chips}</div><div class="lname">${esc(l.subject)}</div>
-        <div class="meta">${place ? `<div>${ico("pin")}<span>${esc(place)}</span></div>` : ""}${l.teacher ? `<div>${ico("user")}<span>${esc(l.teacher)}</span></div>` : ""}</div>${prog}</div>
-      <span class="l-chev">${ico("right")}</span></div>
-    <div class="l-detail"><div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div></div></div>`;
+      <div class="l-time"><b>${esc(l.start)}</b><span>${esc(l.end)}</span></div>
+      <div class="l-sep"></div>
+      <div class="l-body">
+        <div class="chips">${chips}</div>
+        <div class="lname">${esc(l.subject)}</div>
+        <div class="meta-inline">${place ? `<span>${ico("pin")}${esc(place)}</span>` : ""}${l.teacher ? `<span>${ico("user")}${esc(l.teacher)}</span>` : ""}</div>
+        ${prog}
+      </div>
+      <span class="l-chev">${ico("right")}</span>
+    </div>
+    <div class="l-detail"><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
+  </div>`;
 }
 
 function renderSchedule(d) {
   const mon = parseISO(d.monday), now = nowTk(), today = now.iso, days = [];
   for (let i = 0; i < 7; i++) {
     const day = iso(addDays(mon, i));
-    days.push({ iso: day, i, lessons: d.lessons.filter((l) => l.date === day).sort((a, b) => toMin(a.start) - toMin(b.start)) });
+    days.push({ iso: day, i, lessons: (d.lessons || []).filter((l) => l.date === day).sort((a, b) => toMin(a.start) - toMin(b.start)) });
   }
   if (!S.day || !days.some((x) => x.iso === S.day)) S.day = (days.find((x) => x.iso === today) || days.find((x) => x.lessons.length) || days[0]).iso;
-  const label = S.week === 0 ? "Эта неделя" : S.week === 1 ? "Следующая неделя" : S.week === -1 ? "Прошлая неделя" : "Неделя";
+  const label = S.week === 0 ? "Эта неделя" : S.week === 1 ? "Следующая" : S.week === -1 ? "Прошлая" : "Неделя";
   const head = pager({ label, sub: `${dm(d.monday)} – ${dm(d.sunday)}`, prev: S.week > -8, next: S.week < 8, action: "week" });
-  const strip = `<div class="days">${days.map((x) => `<button class="day ${x.iso === S.day ? "sel" : ""} ${x.iso === today ? "today" : ""} ${x.lessons.length ? "has" : ""}" data-a="day" data-day="${x.iso}" aria-label="${WD[x.i]}, ${dm(x.iso)}"><span>${WD[x.i]}</span><b>${Number(x.iso.slice(8))}</b><i class="dot"></i></button>`).join("")}</div>`;
-  if (!d.published) return head + empty("⏳", "Расписание ещё не опубликовано", "Университет пока не выложил эту неделю.");
+  const strip = `<div class="days">${days.map((x) => `<button class="day ${x.iso === S.day ? "sel" : ""} ${x.iso === today ? "today" : ""} ${x.lessons.length ? "has" : ""}" data-a="day" data-day="${x.iso}"><span>${WD[x.i]}</span><b>${Number(x.iso.slice(8))}</b><i class="dot"></i></button>`).join("")}</div>`;
+  if (!d.published) return head + empty("⏳", "Неделя не опубликована", "Университет пока не выложил это расписание.");
   const cur = days.find((x) => x.iso === S.day), lessons = cur.lessons, isToday = cur.iso === today;
   const title = isToday ? "Сегодня" : `${WD[cur.i]}, ${dm(cur.iso)}`;
-  if (!lessons.length) return head + strip + `<div class="dayhead off"><b>${title} · пар нет</b></div>` + empty("🎉", "Свободный день", "Можно отдохнуть или заняться делами.");
+  if (!lessons.length) return head + strip + empty("🎉", `${title} · пар нет`, "Свободный день.");
   const from = Math.min(...lessons.map((l) => toMin(l.start))), to = Math.max(...lessons.map((l) => toMin(l.end)));
-  return head + strip + `<div class="dayhead"><b>${title} · ${lessons.length} ${plural(lessons.length, "пара", "пары", "пар")}</b><span class="range">${ico("clock")}${hhmm(from)} – ${hhmm(to)}</span></div>`
+  return head + strip + `<div class="section-hd"><h2>${title} · ${lessons.length} ${plural(lessons.length, "пара", "пары", "пар")}</h2><span class="tiny muted">${hhmm(from)} – ${hhmm(to)}</span></div>`
     + lessons.map((l) => lessonCard(l, lessonState(l, isToday, now.min))).join("");
 }
 
-// ---------------------------------------------------------------- НБ (быстрая прокрутка 8 семестров + чёткий вывод «Нет пропусков»)
-const NB_STATUS = { ok: "В норме", warn: "Осторожно", fail: "Лимит превышен", unknown: "Лимит неизвестен" };
+// ---------------------------------------------------------------- Tab 3: Учёба (Grades, NB, Exams, Tasks)
+const STUDY_SEG = [["grades", "Оценки"], ["nb", "НБ"], ["exams", "Экзамены"], ["tasks", "Задания"]];
+const studyHeader = () => (!S.sub && S.tab === "study" ? seg(STUDY_SEG, S.studyTab, "studytab") : "");
+
+const NB_STATUS = { ok: "В норме", warn: "Риск", fail: "Лимит!", unknown: "Лимит ?" };
 const NB_TONE = { ok: "tone-ok", warn: "tone-warn", fail: "tone-bad", unknown: "" };
 
 function renderNb(d) {
   const r = (d && d.report) || {};
   const activeSem = String(S.sem.nb || r.semester || (d && d.semesters && d.semesters.current) || "13");
   S.sem.nb = activeSem;
-  let html = semPager(d && d.semesters, activeSem);
+  let html = studyHeader() + semPager(d && d.semesters, activeSem);
   const rows = Array.isArray(r.rows) ? r.rows : [];
   const rowsWithNb = rows.filter((row) => Number(row.hours) > 0 || Number(row.excused_h) > 0 || (row.records && row.records.length > 0));
-  const totalH = Number(r.total_hours || 0);
-  const excH = Number(r.excused_total || 0);
-  html += `<div class="tiles"><div class="tile"><b>${num(totalH)} ч</b><span>Пропущено</span></div><div class="tile"><b>${num(excH)} ч</b><span>Уважительные</span></div><div class="tile"><b>${num(r.limit_pct ?? 25)}%</b><span>Лимит часов</span></div></div>`;
-  if (!rowsWithNb.length && totalH === 0 && excH === 0) {
-    return html + empty("🎉", "Нет пропусков", "В этом семестре пропусков (НБ) нет.");
-  }
-  const displayRows = rowsWithNb.length ? rowsWithNb : rows;
-  return html + displayRows.map((row, idx) => {
+  const totalH = Number(r.total_hours || 0), excH = Number(r.excused_total || 0);
+  html += `<div class="tiles"><div class="tile"><b>${num(totalH)} ч</b><span>Пропущено</span></div><div class="tile"><b>${num(excH)} ч</b><span>Уважит.</span></div><div class="tile"><b>${num(r.limit_pct ?? 25)}%</b><span>Лимит</span></div></div>`;
+  if (!rowsWithNb.length && totalH === 0 && excH === 0) return html + empty("🎉", "Нет пропусков", "В этом семестре пропусков (НБ) нет.");
+  return html + (rowsWithNb.length ? rowsWithNb : rows).map((row, idx) => {
     const key = `nb${activeSem}_${idx}`, open = S.open.has(key), used = row.limit_hours ? Math.min(row.hours / row.limit_hours, 1) : 0;
     const status = NB_STATUS[row.status] ? row.status : "unknown", approx = row.hours_src === "schedule" ? "≈" : "";
     const hours = row.limit_hours ? `<b>${num(row.hours)}</b> / ${approx}${num(row.limit_hours)} ч` : `<b>${num(row.hours)}</b> ч`;
-    const left = !row.limit_hours ? "лимит неизвестен" : row.status === "fail" ? "лимит превышен" : `можно ещё <b>${pairsWord(row.left_pairs)}</b>`;
+    const left = !row.limit_hours ? "лимит неизвестен" : row.status === "fail" ? "лимит превышен" : `ещё <b>${pairsWord(row.left_pairs)}</b>`;
     const records = row.records && row.records.length ? `<div class="records" ${open ? "" : "hidden"}>${row.records.map((a) => `<div><span class="d">${esc(dm(a.date))}</span><span>${esc(a.pair)} пара · ${esc(a.type)}</span><span class="muted" style="margin-left:auto">${num(a.unexcused_h)} ч</span></div>`).join("")}</div>` : "";
-    return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="item-top"><div class="name">${esc(row.subject)}</div><span class="pill ${NB_TONE[status]}">${NB_STATUS[status]}</span></div>
+    return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="between"><b>${esc(row.subject)}</b><span class="pill ${NB_TONE[status]}">${NB_STATUS[status]}</span></div>
       <div class="bar ${status}"><i style="width:${(used * 100).toFixed(0)}%"></i></div><div class="foot"><span>${hours}</span><span>${left}</span></div>${records}</div>`;
   }).join("");
 }
 
-// ---------------------------------------------------------------- экзамены
-const EXAM_TABS = [["1", "1-е", "промеж."], ["2", "2-е", "промеж."], ["c", "Текущий", "контроль"], ["s", "Сессия", "итоговый"]];
-
+const EXAM_TABS = [["1", "1-ON"], ["2", "2-ON"], ["c", "Текущ."], ["s", "Сессия"]];
 function renderExams(d) {
   const activeSem = String(S.sem.exams || d.semester || "13");
   S.sem.exams = activeSem;
@@ -334,50 +513,90 @@ function renderExams(d) {
     const up = Object.entries(by).map(([k, v]) => [k, v.filter((e) => e.date >= today)]).filter(([, v]) => v.length).map(([k, v]) => [k, v[0].date]);
     S.examTab = up.length ? up.sort((a, b) => a[1].localeCompare(b[1]))[0][0] : ["s", "c", "2", "1"].find((k) => by[k].length) || "s";
   }
-  const tabs = EXAM_TABS.map(([k, t, sub]) => [k, t, by[k].length ? `${by[k].length} экз.` : sub]);
-  let html = semPager(d.semesters, activeSem)
-    + seg(tabs, S.examTab, "examtab");
+  const tabs = EXAM_TABS.map(([k, t]) => [k, t, by[k].length ? String(by[k].length) : ""]);
+  let html = studyHeader() + semPager(d.semesters, activeSem) + seg(tabs, S.examTab, "examtab");
   const items = by[S.examTab];
-  if (!(d.exams && d.exams.length)) return html + empty("🗓", "Расписание экзаменов пока не опубликовано", "Как только оно появится в HEMIS для выбранного семестра, здесь появятся даты.");
-  if (!items.length) return html + empty("✨", "В этой вкладке экзаменов нет", "");
+  if (!(d.exams && d.exams.length)) return html + empty("🗓", "Экзамены не опубликованы", "Даты появятся здесь сразу после публикации в HEMIS.");
+  if (!items.length) return html + empty("✨", "В этой категории экзаменов нет", "");
   const card = (e) => {
     const day = parseISO(e.date), left = Math.round((day - parseISO(today)) / 864e5);
-    const state = left < 0 ? "past" : left === 0 ? "today" : "";
-    const when = left < 0 ? ["прошёл", ""] : left === 0 ? ["сегодня", "tone-bad"] : left === 1 ? ["завтра", "tone-warn"] : [`через ${left} дн.`, left <= 3 ? "tone-warn" : ""];
-    return `<div class="card exam ${state}"><div class="edate"><b>${day.getUTCDate()}</b><span>${MON[day.getUTCMonth()]}</span></div>
-      <div class="grow"><div class="name">${esc(e.subject)}</div>
-        <div class="meta-inline"><span>${ico("clock")}${WD[(day.getUTCDay() + 6) % 7]}, ${esc(e.start)}${e.end ? `–${esc(e.end)}` : ""}</span>${e.room ? `<span>${ico("pin")}${esc(e.room)}</span>` : ""}${e.teacher ? `<span>${ico("user")}${esc(e.teacher)}</span>` : ""}</div>
-        ${S.examTab === "c" && e.kind ? `<div style="margin-top:7px"><span class="chip">${esc(e.kind)}</span></div>` : ""}</div>
-      <span class="chip when ${when[1]}">${when[0]}</span></div>`;
+    const when = left < 0 ? ["прошёл", ""] : left === 0 ? ["сегодня", "tone-bad"] : left === 1 ? ["завтра", "tone-warn"] : [`${left} дн.`, left <= 3 ? "tone-warn" : ""];
+    return `<div class="card exam ${left < 0 ? "past" : ""}">
+      <div class="edate"><b>${day.getUTCDate()}</b><span>${MON[day.getUTCMonth()]}</span></div>
+      <div class="grow" style="min-width:0">
+        <b style="display:block">${esc(e.subject)}</b>
+        <div class="meta-inline"><span>${ico("clock")}${WD[(day.getUTCDay() + 6) % 7]}, ${esc(e.start)}${e.end ? `–${esc(e.end)}` : ""}</span>${e.room ? `<span>${ico("pin")}${esc(e.room)}</span>` : ""}</div>
+      </div>
+      <span class="pill ${when[1]}">${when[0]}</span>
+    </div>`;
   };
   const main = items.filter((e) => e.sheet === 1), retake = items.filter((e) => e.sheet !== 1);
   html += main.map(card).join("");
-  if (retake.length) html += `<div class="section-title">Пересдача · 2-я ведомость</div>` + retake.map(card).join("");
+  if (retake.length) html += `<div class="section-hd"><h2>Пересдача</h2></div>` + retake.map(card).join("");
   return html;
 }
 
-// ---------------------------------------------------------------- оценки
 const grade5 = (pct) => (pct == null ? null : pct >= 86 ? 5 : pct >= 71 ? 4 : pct >= 55 ? 3 : 2);
-
 function renderGrades(d) {
   const p = d.perf || { subjects: [], credits: 0 };
   const activeSem = String(S.sem.grades || p.semester || "13");
   S.sem.grades = activeSem;
-  let html = semPager(d.semesters, activeSem);
+  let html = studyHeader() + semPager(d.semesters, activeSem);
   html += `<div class="tiles four"><div class="tile"><b>${p.gpa_calc ?? "—"}</b><span>GPA</span></div><div class="tile"><b>${p.avg_pct != null ? num(p.avg_pct) + "%" : "—"}</b><span>Средний</span></div><div class="tile"><b>${p.credits}</b><span>Кредитов</span></div><div class="tile"><b>${p.subjects.length}</b><span>Предметов</span></div></div>`;
-
   if (!p.subjects.length) return html + empty("🎓", "Предметов пока нет", "");
-
   return html + p.subjects.map((s) => {
     const o = s.overall, has = o && o.ball != null && o.ball !== 0, g = s.grade5 || (has ? grade5(o.pct) : null);
-    const parts = [["Текущий", s.current], ["Промежуточный", s.mid], ["Итоговый", s.final], ...(s.extra || []).map((x) => [x.name, x])].filter(([, v]) => v && v.ball != null);
-    return `<div class="card grade ${g ? "g" + g : ""}"><div class="row" style="gap:14px">
-        <div class="ring" style="--p:${has ? Math.min(o.pct || 0, 100) : 0}"><b>${has ? num(o.pct) + "%" : "—"}</b></div>
-        <div class="grow"><div class="name">${esc(s.name)}</div><div class="muted small">${s.credit} кр.${has ? ` · ${num(o.ball)} / ${num(o.max)} б.` : " · учебный план семестра"}</div></div>
-        ${g ? `<div class="gbadge">${g}</div>` : ""}</div>
-      ${parts.length ? `<div class="parts">${parts.map(([n, v]) => `<div class="part"><div class="ptop"><b>${esc(n)}</b><span>${num(v.ball)}${v.max ? ` / ${num(v.max)}` : ""}</span></div><div class="pb"><i style="width:${Math.min(v.pct ?? (v.max ? (v.ball / v.max) * 100 : 0), 100)}%"></i></div></div>`).join("")}</div>` : ""}
-</div>`;
+    const parts = [["Текущий", s.current], ["Промеж.", s.mid], ["Итоговый", s.final], ...(s.extra || []).map((x) => [x.name, x])].filter(([, v]) => v && v.ball != null);
+    return `<div class="card grade ${g ? "g" + g : ""}"><div class="row" style="gap:12px">
+      <div class="ring" style="--p:${has ? Math.min(o.pct || 0, 100) : 0}"><b>${has ? num(o.pct) + "%" : "—"}</b></div>
+      <div class="grow"><b>${esc(s.name)}</b><div class="muted small">${s.credit} кр.${has ? ` · ${num(o.ball)} / ${num(o.max)} б.` : " · учебный план"}</div></div>
+      ${g ? `<div class="gbadge">${g}</div>` : ""}</div>
+      ${parts.length ? `<div class="parts">${parts.map(([n, v]) => `<div><div class="ptop"><b>${esc(n)}</b><span>${num(v.ball)}${v.max ? ` / ${num(v.max)}` : ""}</span></div><div class="pb"><i style="width:${Math.min(v.pct ?? (v.max ? (v.ball / v.max) * 100 : 0), 100)}%"></i></div></div>`).join("")}</div>` : ""}
+    </div>`;
   }).join("");
+}
+
+const taskGroup = (t) => (t.graded ? "graded" : t.overdue ? "overdue" : "active");
+function renderTasks(d) {
+  const activeSem = String(S.sem.tasks || d.semester || "13");
+  S.sem.tasks = activeSem;
+  const allTasks = d.tasks || [];
+  const groups = { active: [], overdue: [], graded: [], all: allTasks };
+  allTasks.forEach((t) => groups[taskGroup(t)].push(t));
+  const tabs = [["active", "Актив."], ["overdue", "Проср."], ["graded", "Оцен."], ["all", "Все"]].map(([k, t]) => [k, t, groups[k].length ? String(groups[k].length) : ""]);
+  let html = studyHeader() + semPager(d.semesters, activeSem) + seg(tabs, S.taskTab, "tasktab");
+  const list = groups[S.taskTab];
+  if (!list.length) return html + empty("🎉", S.taskTab === "active" ? "Активных заданий нет" : "Пусто", "");
+  return html + list.map((t) => {
+    const key = `t${t.id}`, open = S.open.has(key), m = t.graded ? null : minutesLeft(t.deadline);
+    const badge = t.graded ? `<span class="pill tone-ok">${num(t.mark)}${t.max_ball ? `/${num(t.max_ball)}` : ""}</span>`
+      : t.sent_at ? '<span class="pill tone-violet">Отправлено</span>'
+      : m != null ? `<span class="pill ${m < 0 ? "tone-bad" : m < 2880 ? "tone-warn" : ""}">${leftLabel(m)}</span>` : "";
+    const detail = `<div class="detail" ${open ? "" : "hidden"}>
+      ${t.description ? `<p>${esc(t.description)}</p>` : ""}
+      ${t.teacher_comment ? `<p class="muted"><b>Преподаватель:</b> ${esc(t.teacher_comment)}</p>` : ""}
+      ${t.teacher ? `<div class="meta-inline"><span>${ico("user")}${esc(t.teacher)}</span><span>Попытки: ${esc(t.attempts)}</span></div>` : ""}
+      ${fileList(t.files)}
+      <button class="btn tonal block" data-a="send" data-type="task" data-id="${esc(t.id)}">${ico("send")}Карточка и ИИ-разбор в боте</button>
+    </div>`;
+    return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="between" style="align-items:flex-start">
+      <div class="grow"><b>${esc(t.title)}</b><div class="muted small">${esc(t.subject)}${t.lesson_type ? " · " + esc(t.lesson_type) : ""}</div></div>${badge}</div>
+      ${t.deadline ? `<div class="meta-inline"><span>${ico("clock")}до ${esc(dm(t.deadline))} ${esc(t.deadline.slice(11))}</span></div>` : ""}${detail}</div>`;
+  }).join("");
+}
+
+// ---------------------------------------------------------------- Tab 4: Ещё + Sub-screens
+const MENU = [
+  ["resources", "Учебные ресурсы", "Лекции и презентации по предметам", "book", "ok"],
+  ["subjects", "Предметы семестра", "Кредиты и нагрузка (1–8 семестр)", "layers", "brand"],
+  ["contract", "Контракт на обучение", "Оплата, остаток и ежемесячный план", "wallet", "warn"],
+  ["settings", "Уведомления", "Бот и Helper · время и частота", "bell", "bad"],
+];
+
+function renderMore() {
+  return `<div class="card flush">${MENU.map(([id, t, sub, icon, tone]) =>
+    `<button class="menu-row" data-a="open" data-sub="${id}"><span class="menu-ico tone-${tone}">${ico(icon)}</span><span class="grow"><b>${t}</b><span class="menu-sub">${sub}</span></span><span class="muted">${ico("right")}</span></button>`
+  ).join("")}</div>`;
 }
 
 function renderSubjects(d) {
@@ -388,150 +607,81 @@ function renderSubjects(d) {
   if (!p.subjects.length) return html + empty("📚", "Предметов пока нет", "");
   const total = p.subjects.reduce((a, s) => a + (s.load || 0), 0);
   return html + `<div class="tiles"><div class="tile"><b>${p.subjects.length}</b><span>Предметов</span></div><div class="tile"><b>${p.credits}</b><span>Кредитов</span></div><div class="tile"><b>${total || "—"}</b><span>Часов</span></div></div>`
-    + p.subjects.map((s) => `<div class="card"><div class="name">${esc(s.name)}</div><div class="chips" style="margin-top:8px"><span class="chip tone-brand">${s.credit} кр.</span>${s.load ? `<span class="chip">${s.load} ч</span>` : ""}${s.kind ? `<span class="chip">${esc(s.kind)}</span>` : ""}</div></div>`).join("");
+    + p.subjects.map((s) => `<div class="card"><b>${esc(s.name)}</b><div class="chips" style="margin-top:8px"><span class="pill tone-brand">${s.credit} кр.</span>${s.load ? `<span class="chip">${s.load} ч</span>` : ""}${s.kind ? `<span class="chip">${esc(s.kind)}</span>` : ""}</div></div>`).join("");
 }
 
-// ---------------------------------------------------------------- «Ещё» и подразделы
-const MENU = [
-  ["exams", "Экзамены и Контроли", "Расписание 1-ON, 2-ON и сессии по 8 семестрам", "exam", "brand"],
-  ["tasks", "Задания и Дедлайны", "Условия, оценки и отправка файлов в чат", "tasks", "violet"],
-  ["resources", "Учебные ресурсы", "Лекции и презентации по предметам", "book", "ok"],
-  ["subjects", "Предметы семестра", "Кредиты и аудиторная нагрузка (1–8 семестр)", "layers", "brand"],
-  ["contract", "Контракт на обучение", "Оплата, остаток и ежемесячный план", "wallet", "warn"],
-  ["settings", "Уведомления", "Две ветви: Бот и Helper · время и частота", "bell", "bad"],
-];
-
-function renderMore() {
-  return `<div class="card menu">${MENU.map(([id, t, sub, icon, tone]) => `<button class="menu-item" data-a="open" data-sub="${id}"><span class="menu-ico tone-${tone}">${ico(icon)}</span><span class="grow"><b>${t}</b><span class="muted small">${sub}</span></span><span class="chev">${ico("right")}</span></button>`).join("")}</div>
-    <p class="muted small" style="text-align:center;margin:8px 0 0">Данные кэшируются на устройстве — приложение открывается мгновенно.<br>Кнопка ⟳ в шапке обновляет активный раздел.</p>`;
-}
-
-// ---------- задания
-function minutesLeft(deadline) {
-  if (!deadline) return null;
-  const now = nowTk(), dayDiff = Math.round((parseISO(deadline.slice(0, 10)) - parseISO(now.iso)) / 864e5);
-  return dayDiff * 1440 + toMin(deadline.slice(11)) - now.min;
-}
-function leftLabel(m) {
-  const a = Math.abs(m), t = a < 60 ? `${a} мин` : a < 2880 ? `${Math.floor(a / 60)} ч` : `${Math.floor(a / 1440)} дн.`;
-  return m < 0 ? `просрочено на ${t}` : `осталось ${t}`;
-}
-const taskGroup = (t) => (t.graded ? "graded" : t.overdue ? "overdue" : "active");
-
-function renderTasks(d) {
-  const activeSem = String(S.sem.tasks || d.semester || "13");
-  S.sem.tasks = activeSem;
-  const allTasks = d.tasks || [];
-  const groups = { active: [], overdue: [], graded: [], all: allTasks };
-  allTasks.forEach((t) => groups[taskGroup(t)].push(t));
-  const tabs = [["active", "Активные"], ["overdue", "Просрочено"], ["graded", "Оценено"], ["all", "Все"]].map(([k, t]) => [k, t, groups[k].length]);
-  let html = semPager(d.semesters, activeSem) + seg(tabs, S.taskTab, "tasktab");
-  const list = groups[S.taskTab];
-  if (!list.length) return html + empty(S.taskTab === "active" ? "🎉" : "✨", S.taskTab === "active" ? "Активных заданий нет" : "Здесь пусто", "");
-  return html + list.map((t) => {
-    const key = `t${t.id}`, open = S.open.has(key), m = t.graded ? null : minutesLeft(t.deadline);
-    const badge = t.graded ? `<span class="pill tone-ok">${num(t.mark)}${t.max_ball ? ` / ${num(t.max_ball)}` : ""}</span>`
-      : t.sent_at ? '<span class="pill tone-violet">Отправлено</span>'
-      : m != null ? `<span class="pill ${m < 0 ? "tone-bad" : m < 2880 ? "tone-warn" : ""}">${leftLabel(m)}</span>` : "";
-    const detail = `<div class="detail" ${open ? "" : "hidden"}>
-      ${t.description ? `<p>${esc(t.description)}</p>` : ""}
-      ${t.teacher_comment ? `<p class="muted"><b>Комментарий преподавателя:</b> ${esc(t.teacher_comment)}</p>` : ""}
-      ${t.teacher ? `<div class="meta-inline"><span>${ico("user")}${esc(t.teacher)}</span><span>Попытки: ${esc(t.attempts)}</span></div>` : ""}
-      ${fileList(t.files)}
-      <button class="btn tonal block" data-a="send" data-type="task" data-id="${esc(t.id)}">${ico("send")}Открыть карточку и ИИ-разбор в боте</button>
-    </div>`;
-    return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="item-top"><div class="grow"><div class="name">${esc(t.title)}</div><div class="muted small" style="margin-top:2px">${esc(t.subject)}${t.lesson_type ? " · " + esc(t.lesson_type) : ""}</div></div>${badge}</div>
-      ${t.deadline ? `<div class="meta-inline"><span>${ico("clock")}до ${esc(dm(t.deadline))} ${esc(t.deadline.slice(11))}</span></div>` : ""}${detail}</div>`;
-  }).join("");
-}
-
-// ---------- ресурсы
 function renderResources(d) {
   const activeSem = String(S.sem.resources || d.semester || "13");
   S.sem.resources = activeSem;
   if (!S.res.subject) {
     const html = semPager(d.semesters, activeSem);
     const list = (d.subjects || []).filter((x) => x.resources);
-    if (!list.length) return html + empty("📖", "Материалов пока нет", "Преподаватели ещё не загрузили ресурсы в этом семестре.");
-    return html + list.map((x) => `<button class="card tap row" style="width:100%" data-a="subject" data-id="${esc(x.id)}" data-name="${esc(x.name)}"><span class="menu-ico tone-violet">${ico("book")}</span>
-      <span class="grow"><span class="name" style="display:block">${esc(x.name)}</span><span class="muted small">${x.resources} ${plural(x.resources, "материал", "материала", "материалов")}</span></span><span class="muted">${ico("right")}</span></button>`).join("");
+    if (!list.length) return html + empty("📖", "Материалов пока нет", "Ресурсы появятся после загрузки преподавателями.");
+    return html + `<div class="card flush">${list.map((x) => `<button class="menu-row" data-a="subject" data-id="${esc(x.id)}" data-name="${esc(x.name)}"><span class="menu-ico tone-violet">${ico("book")}</span>
+      <span class="grow"><b>${esc(x.name)}</b><span class="menu-sub">${x.resources} ${plural(x.resources, "материал", "материала", "материалов")}</span></span><span class="muted">${ico("right")}</span></button>`).join("")}</div>`;
   }
   if (!d.resources || !d.resources.length) return empty("✨", "Материалов нет", "");
   const kinds = [...new Set(d.resources.map((r) => r.kind).filter(Boolean))];
   const rank = (k) => (/лек/i.test(k) ? 0 : /практ|семин/i.test(k) ? 1 : 2);
   kinds.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, "ru"));
   if (S.resKind !== "all" && !kinds.includes(S.resKind)) S.resKind = "all";
-  const count = (k) => d.resources.filter((r) => r.kind === k).length;
-  const tabs = kinds.length > 1 ? seg([["all", "Все", `${d.resources.length} шт.`], ...kinds.map((k) => [k, k, `${count(k)} шт.`])], S.resKind, "reskind") : "";
+  const tabs = kinds.length > 1 ? seg([["all", "Все", String(d.resources.length)], ...kinds.map((k) => [k, k, String(d.resources.filter((r) => r.kind === k).length)])], S.resKind, "reskind") : "";
   const shown = S.resKind === "all" ? d.resources : d.resources.filter((r) => r.kind === S.resKind);
-  return tabs + `<div class="dayhead off"><b>${shown.length} ${plural(shown.length, "тема", "темы", "тем")}</b><span class="muted small">нажмите на тему</span></div>` + shown.map((r) => {
+  return tabs + shown.map((r) => {
     const key = `r${r.id}`, open = S.open.has(key);
     const items = r.items.map((i) => `${i.url ? `<div class="file">${ico("link")}<span><a class="link" data-a="link" data-url="${esc(i.url)}">${esc(i.comment || i.type || i.url)}</a></span></div>` : ""}${fileList(i.files)}`).join("");
-    return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="item-top"><div class="name">${esc(r.title)}</div>${r.files_count ? `<span class="pill">${ico("file")}${r.files_count}</span>` : ""}</div>
-      <div class="chips" style="margin-top:7px">${r.kind ? `<span class="chip ${r.kind.toLowerCase().includes("лек") ? "tag-lec" : "tag-prac"}">${esc(r.kind)}</span>` : ""}${(r.languages || []).map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>
+    return `<div class="card tap" data-a="toggle" data-key="${key}"><div class="between"><b>${esc(r.title)}</b>${r.files_count ? `<span class="pill">${r.files_count} ф.</span>` : ""}</div>
+      <div class="chips" style="margin-top:6px">${r.kind ? `<span class="tag ${r.kind.toLowerCase().includes("лек") ? "tag-lec" : "tag-prac"}">${esc(r.kind)}</span>` : ""}${(r.languages || []).map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>
       <div class="detail" ${open ? "" : "hidden"}>${r.teacher ? `<div class="meta-inline"><span>${ico("user")}${esc(r.teacher)}</span></div>` : ""}${r.comment && r.comment.length > 3 ? `<p>${esc(r.comment)}</p>` : ""}${items}
         ${r.files_count ? `<button class="btn tonal block" data-a="send" data-type="resource" data-id="${esc(r.id)}" data-subject="${esc(S.res.subject)}" data-semester="${esc(activeSem)}">${ico("send")}Прислать файлы и конспект в чат</button>` : ""}</div></div>`;
   }).join("");
 }
 
-// ---------- контракт
 function renderContract(c) {
   const pct = c.paid_pct != null ? Math.min(c.paid_pct, 100) : null;
-  const info = [["Специальность", c.speciality], ["Курс", c.course], ["Форма обучения", c.form], ["Учебный год", c.year], ["GPA в HEMIS", c.gpa]].filter(([, v]) => v != null && v !== "");
-  const monthsLeft = 7;
-  const monthlyRec = c.remaining > 0 ? Math.round(c.remaining / monthsLeft) : 0;
-  return `<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:12px"><b>Оплата контракта</b><span class="pill ${c.remaining > 0 ? "tone-warn" : "tone-ok"}">${c.remaining > 0 ? "есть остаток" : "оплачено"}</span></div>
-      <div class="bigbar"><i style="width:${pct ?? 0}%"></i></div>
-      <div class="foot" style="margin-top:8px">
-        <span>${pct != null ? `Оплачено ${num(pct)}%` : ""}</span>
-        ${monthlyRec > 0 ? `<span>План: <b>${money(monthlyRec)}</b> сум/мес.</span>` : ""}
-      </div></div>
-    <div class="money"><div class="tile"><b>${money(c.total)}</b><span>Всего</span></div><div class="tile"><b>${money(c.paid)}</b><span>Оплачено</span></div><div class="tile"><b>${money(c.remaining)}</b><span>Остаток</span></div></div>
-    ${c.remaining > 0 ? `<div class="row" style="gap:8px">
-      <button class="btn grow" data-a="copy" data-text="${Math.round(c.remaining)}">${ico("copy")}Скопировать остаток</button>
-    </div>` : ""}
+  const info = [["Специальность", c.speciality], ["Курс", c.course], ["Форма", c.form], ["Учебный год", c.year], ["GPA", c.gpa]].filter(([, v]) => v != null && v !== "");
+  const monthlyRec = c.remaining > 0 ? Math.round(c.remaining / 7) : 0;
+  return `<div class="card">
+      <div class="between"><b>Оплата контракта</b><span class="pill ${c.remaining > 0 ? "tone-warn" : "tone-ok"}">${c.remaining > 0 ? "есть остаток" : "оплачено"}</span></div>
+      <div class="bar ok" style="height:8px;margin:12px 0 8px"><i style="width:${pct ?? 0}%"></i></div>
+      <div class="foot"><span>${pct != null ? `Оплачено ${num(pct)}%` : ""}</span>${monthlyRec > 0 ? `<span>План: <b>${money(monthlyRec)}</b> / мес.</span>` : ""}</div>
+    </div>
+    <div class="tiles"><div class="tile"><b>${money(c.total)}</b><span>Всего</span></div><div class="tile"><b>${money(c.paid)}</b><span>Оплачено</span></div><div class="tile"><b>${money(c.remaining)}</b><span>Остаток</span></div></div>
+    ${c.remaining > 0 ? `<button class="btn block" data-a="copy" data-text="${Math.round(c.remaining)}">${ico("copy")}Скопировать остаток</button>` : ""}
     ${info.length ? `<div class="card">${info.map(([k, v]) => `<div class="kv"><span>${k}</span><span>${esc(v)}</span></div>`).join("")}</div>` : ""}`;
 }
 
-// ---------- Двухветвевые настройки уведомлений («Бот» и «HEMIS»)
+// ---------- Two-branch Notifications
 const BOT_TOGGLE_META = [
-  ["bot_briefing_on", "Утренний ИИ-брифинг Джарвиса", "План дня, задачи, погода и приоритеты"],
-  ["bot_finance_on", "Вечерний итог дня", "Вечером: выполненные дела и напоминания на завтра"],
-  ["bot_model_footer", "Подпись «какая ИИ ответила»", "Под ответом Джарвиса — название модели, которая выполнила запрос"],
+  ["bot_briefing_on", "Утренний ИИ-брифинг", "План дня, задачи, погода и приоритеты"],
+  ["bot_finance_on", "Вечерний итог дня", "Выполненные дела и напоминания на завтра"],
+  ["bot_model_footer", "Подпись модели ИИ", "Указывать название модели под ответом"],
 ];
-
 const HEMIS_TOGGLE_META = [
-  ["morning_on", "Утренняя сводка расписания", "Список пар, корпусов и аудиторий на сегодня"],
-  ["lesson_alert_on", "Напоминание перед началом пары", "Пуш с номером аудитории за выбранное время до звонка"],
-  ["prep_on", "Подготовка к семинарам и практикам", "Вечернее напоминание о завтрашних практических занятиях"],
-  ["changes_on", "Изменения в расписании", "Мгновенно при переносе пары или смене кабинета"],
-  ["nb_on", "Новые пропуски (НБ)", "Уведомление при появлении НБ и расчёт остатка до 25%"],
-  ["grades_on", "Новые оценки и баллы", "Оповещение при выставлении текущих, ОН и итоговых баллов"],
-  ["tasks_on", "Новые задания от преподавателей", "Когда в HEMIS загружено новое задание или файл"],
-  ["deadlines_on", "Приближающиеся дедлайны", "Контроль сроков сдачи самостоятельных работ"],
-  ["exams_on", "Экзамены и ведомости", "Новые даты сессии и напоминания перед экзаменом"],
+  ["morning_on", "Утренняя сводка пар", "Список пар, корпусов и аудиторий на сегодня"],
+  ["lesson_alert_on", "Перед началом пары", "Пуш с аудиторией до звонка"],
+  ["prep_on", "Подготовка к семинарам", "Вечернее напоминание о практиках на завтра"],
+  ["changes_on", "Изменения расписания", "Мгновенно при переносе или смене кабинета"],
+  ["nb_on", "Новые пропуски (НБ)", "Уведомление и расчёт остатка до 25%"],
+  ["grades_on", "Новые оценки и баллы", "Текущие, промежуточные и итоговые баллы"],
+  ["tasks_on", "Новые задания", "Когда в HEMIS добавлена новая работа"],
+  ["deadlines_on", "Дедлайны", "Контроль сроков сдачи работ"],
+  ["exams_on", "Экзамены и ведомости", "Новые даты сессии и напоминания"],
 ];
 
 function renderFreqRow(title, sub, prefKey, curVal, options) {
   return `<div class="notif-row">
-    <div class="notif-head">
-      <div><b>${esc(title)}</b>${sub ? `<span class="setting-sub">${esc(sub)}</span>` : ""}</div>
-    </div>
-    <div class="freq-pills">
-      ${options.map(([val, label]) => `<button class="freq-pill ${curVal === val ? "on" : ""}" data-a="notiffreq" data-key="${esc(prefKey)}" data-val="${esc(val)}">${esc(label)}</button>`).join("")}
-    </div>
+    <div><b>${esc(title)}</b>${sub ? `<span class="menu-sub">${esc(sub)}</span>` : ""}</div>
+    <div class="freq-pills">${options.map(([val, label]) => `<button class="freq-pill ${curVal === val ? "on" : ""}" data-a="notiffreq" data-key="${esc(prefKey)}" data-val="${esc(val)}">${esc(label)}</button>`).join("")}</div>
   </div>`;
 }
-
 function renderTimeRow(title, sub, prefKey, curVal, presets) {
   return `<div class="notif-row">
     <div class="notif-head">
-      <div><b>${esc(title)}</b>${sub ? `<span class="setting-sub">${esc(sub)}</span>` : ""}</div>
-      <input type="time" class="time-inp" value="${esc(curVal)}" data-a="notiftime" data-key="${esc(prefKey)}" aria-label="${esc(title)}">
+      <div><b>${esc(title)}</b>${sub ? `<span class="menu-sub">${esc(sub)}</span>` : ""}</div>
+      <input type="time" class="time-inp" value="${esc(curVal)}" data-a="notiftime" data-key="${esc(prefKey)}">
     </div>
-    <div class="freq-pills">
-      ${presets.map((t) => `<button class="freq-pill ${curVal === t ? "on" : ""}" data-a="notiffreq" data-key="${esc(prefKey)}" data-val="${esc(t)}">${esc(t)}</button>`).join("")}
-    </div>
+    <div class="freq-pills">${presets.map((t) => `<button class="freq-pill ${curVal === t ? "on" : ""}" data-a="notiffreq" data-key="${esc(prefKey)}" data-val="${esc(t)}">${esc(t)}</button>`).join("")}</div>
   </div>`;
 }
 
@@ -539,175 +689,111 @@ function renderSettings(d) {
   const prefs = getNotifPrefs(d && d.prefs);
   const toggleMap = {};
   ((d && d.toggles) || []).forEach((t) => { toggleMap[t.key] = Boolean(t.on); });
-
   const isOn = (key) => (key in toggleMap ? toggleMap[key] : true);
 
-  const branchTabs = seg([
-    ["bot", "🤖 Уведомления Бота", "ИИ, брифинг, задачи"],
-    ["hemis", "🎓 Уведомления Helper", "пары, оценки, НБ"],
-  ], S.notifBranch, "notifbranch");
+  const branchTabs = seg([["bot", "🤖 Бот Джарвис"], ["hemis", "🎓 Helper / HEMIS"]], S.notifBranch, "notifbranch");
 
   if (S.notifBranch === "bot") {
-    const timeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «Бот»</div>
-      <div class="card notif-block">
-        ${renderTimeRow("Утренний ИИ-брифинг", "Сводка задач, планов и курса валют утром", "bot_morning_time", prefs.bot_morning_time, ["06:00", "07:00", "07:30", "08:00", "09:00"])}
-        ${renderTimeRow("Вечерний итог дня", "Выполненные дела и план на завтра", "bot_evening_time", prefs.bot_evening_time, ["20:00", "21:00", "22:00", "23:00"])}
-        ${renderFreqRow("Тихий час (Не беспокоить)", "Интервал без звуковых уведомлений ночью по Ташкенту", "bot_quiet_hours", prefs.bot_quiet_hours, [
-          ["23:30-05:50", "23:30 – 05:50"],
-          ["00:00-06:00", "00:00 – 06:00"],
-          ["off", "Без ограничений"],
-        ])}
-      </div>`;
-
-    const togglesCard = `<div class="section-title">🔔 Категории оповещений · Бот</div>
-      <div class="card menu">
-        ${BOT_TOGGLE_META.map(([key, label, sub]) => `<button class="setting" data-a="setting" data-key="${esc(key)}">
-          <span class="grow"><b>${esc(label)}</b><span class="setting-sub">${esc(sub)}</span></span>
-          <span class="switch ${isOn(key) ? "on" : ""}"></span>
-        </button>`).join("")}
-      </div>`;
-
-    return branchTabs + timeAndFreqCard + togglesCard;
+    return branchTabs
+      + `<div class="section-hd"><h2>Время и тихий час</h2></div>
+        <div class="card">
+          ${renderTimeRow("Утренний брифинг", "План дня и курс валют", "bot_morning_time", prefs.bot_morning_time, ["06:00", "07:00", "07:30", "08:00", "09:00"])}
+          ${renderTimeRow("Вечерний итог", "Дела и план на завтра", "bot_evening_time", prefs.bot_evening_time, ["20:00", "21:00", "22:00", "23:00"])}
+          ${renderFreqRow("Тихий час (Ташкент)", "Без звуковых уведомлений ночью", "bot_quiet_hours", prefs.bot_quiet_hours, [["23:30-05:50", "23:30–05:50"], ["00:00-06:00", "00:00–06:00"], ["off", "Выкл"]])}
+        </div>
+        <div class="section-hd"><h2>Категории · Бот</h2></div>
+        <div class="card flush">${BOT_TOGGLE_META.map(([key, label, sub]) => `<button class="menu-row" data-a="setting" data-key="${esc(key)}"><span class="grow"><b>${esc(label)}</b><span class="menu-sub">${esc(sub)}</span></span><span class="switch ${isOn(key) ? "on" : ""}"></span></button>`).join("")}</div>`;
   }
 
-  // Ветвь «HEMIS»
-  const warn = d && d.auth_failed ? `<div class="card notice"><span class="menu-ico tone-bad">${ico("bell")}</span><div><b>HEMIS не принял пароль</b><div class="muted small">Введите его заново в боте: Меню → Hemis → «Войти».</div></div></div>` : "";
-  const last = d && d.last_ok_at ? `<p class="muted small" style="text-align:center;margin:4px 0 0">Последняя синхронизация с HEMIS: ${esc(String(d.last_ok_at).replace("T", " ").slice(0, 16))}</p>` : "";
-
-  const hemisTimeAndFreqCard = `<div class="section-title">⏰ Время и частота · Ветвь «Helper»</div>
-    <div class="card notif-block">
-      ${renderFreqRow("Опрос HEMIS по расписанию (Ташкент)", "Как часто бот проверяет HEMIS (только с 05:40 до 23:00 по Ташкенту)", "hemis_poll_freq", prefs.hemis_poll_freq, [
-        ["20m_540_2300", "Каждые 20 мин (05:40 – 23:00)"],
-        ["15m", "Каждые 15 мин"],
-        ["30m", "Каждые 30 мин"],
-        ["1h", "Каждый час"],
-      ])}
-      ${renderTimeRow("Время утренней сводки пар", "Во сколько присылать расписание занятий на день", "hemis_morning_time", prefs.hemis_morning_time, ["06:30", "06:45", "07:15", "07:30", "08:00"])}
-      ${renderTimeRow("Время напоминания о семинарах", "Вечерняя проверка практик и семинаров на завтра", "hemis_prep_time", prefs.hemis_prep_time, ["16:00", "18:00", "19:00", "20:00", "21:00"])}
-      ${renderFreqRow("Уведомление перед началом пары", "За сколько минут до звонка напоминать об аудитории", "hemis_before_min", prefs.hemis_before_min, [
-        ["5", "За 5 мин"],
-        ["10", "За 10 мин"],
-        ["15", "За 15 мин"],
-        ["30", "За 30 мин"],
-      ])}
-      ${renderFreqRow("Частота напоминаний о дедлайнах", "График предупреждений о сроках сдачи и экзаменах", "hemis_deadline_freq", prefs.hemis_deadline_freq, [
-        ["intensive", "За 7, 3, 1 дн. и 3 ч"],
-        ["standard", "За 3 дня, 1 день, 12 ч и 1 ч"],
-        ["minimal", "Только за 24 ч"],
-      ])}
-    </div>`;
-
-  const hemisTogglesCard = `<div class="section-title">🔔 Категории оповещений · Helper</div>
-    <div class="card menu">
-      ${HEMIS_TOGGLE_META.map(([key, label, sub]) => `<button class="setting" data-a="setting" data-key="${esc(key)}">
-        <span class="grow"><b>${esc(label)}</b><span class="setting-sub">${esc(sub)}</span></span>
-        <span class="switch ${isOn(key) ? "on" : ""}"></span>
-      </button>`).join("")}
-    </div>`;
-
-  return branchTabs + warn + hemisTimeAndFreqCard + hemisTogglesCard + last;
+  const warn = d && d.auth_failed ? `<div class="card between"><b style="color:var(--bad)">HEMIS не принял пароль</b><span class="tiny muted">Обновите в боте</span></div>` : "";
+  const last = d && d.last_ok_at ? `<p class="muted tiny" style="text-align:center;margin:0">Синхронизация: ${esc(String(d.last_ok_at).replace("T", " ").slice(0, 16))}</p>` : "";
+  return branchTabs + warn
+    + `<div class="section-hd"><h2>Расписание опроса</h2></div>
+      <div class="card">
+        ${renderFreqRow("Опрос HEMIS (05:40–23:00)", "Частота проверки обновлений", "hemis_poll_freq", prefs.hemis_poll_freq, [["20m_540_2300", "20 мин (день)"], ["15m", "15 мин"], ["30m", "30 мин"], ["1h", "1 ч"]])}
+        ${renderTimeRow("Утренняя сводка пар", "Расписание на сегодня", "hemis_morning_time", prefs.hemis_morning_time, ["06:30", "07:00", "07:30", "08:00"])}
+        ${renderTimeRow("Напоминание о семинарах", "Вечерняя проверка на завтра", "hemis_prep_time", prefs.hemis_prep_time, ["16:00", "18:00", "19:00", "20:00"])}
+        ${renderFreqRow("Перед началом пары", "За сколько минут до звонка", "hemis_before_min", prefs.hemis_before_min, [["5", "5 мин"], ["10", "10 мин"], ["15", "15 мин"], ["30", "30 мин"]])}
+        ${renderFreqRow("Напоминания о дедлайнах", "График предупреждений", "hemis_deadline_freq", prefs.hemis_deadline_freq, [["intensive", "7д / 3д / 1д / 3ч"], ["standard", "3д / 1д / 12ч / 1ч"], ["minimal", "24ч"]])}
+      </div>
+      <div class="section-hd"><h2>Категории · Helper</h2></div>
+      <div class="card flush">${HEMIS_TOGGLE_META.map(([key, label, sub]) => `<button class="menu-row" data-a="setting" data-key="${esc(key)}"><span class="grow"><b>${esc(label)}</b><span class="menu-sub">${esc(sub)}</span></span><span class="switch ${isOn(key) ? "on" : ""}"></span></button>`).join("")}</div>` + last;
 }
 
-// ---------------------------------------------------------------- заголовки и ошибки
 function heroFor(id, d) {
   switch (id) {
+    case "pulse": return ["Главное", `${WD[(parseISO(nowTk().iso).getUTCDay() + 6) % 7]}, ${dm(nowTk().iso)}`];
     case "schedule": return ["Расписание", d ? `${dm(d.monday)} – ${dm(d.sunday)}` : ""];
-    case "nb": {
-      const sCode = S.sem.nb || (d && d.report && d.report.semester) || "13";
-      return ["Пропуски (НБ)", `${semNo(sCode)}-й семестр · лимит ${d && d.report ? num(d.report.limit_pct) : 25}%`];
-    }
-    case "exams": {
-      const sCode = S.sem.exams || (d && d.semester) || "13";
-      return ["Экзамены", d ? `${semNo(sCode)}-й семестр · ${d.exams.length} ${plural(d.exams.length, "экзамен", "экзамена", "экзаменов")}` : `${semNo(sCode)}-й семестр`];
-    }
-    case "grades": {
-      const sCode = S.sem.grades || (d && d.perf && d.perf.semester) || "13";
-      return ["Оценки и GPA", `${semNo(sCode)}-й семестр${d && d.perf && d.perf.period ? " · " + d.perf.period : ""}`];
-    }
-      return ["Финансы", d && d.summary ? `Расходы ${d.summary.title || "за период"}: ${fmtMoney(d.summary.expense)} сум` : "Счета, бюджет и Burn-Rate"];
-    case "subjects": {
-      const sCode = S.sem.subjects || (d && d.perf && d.perf.semester) || "13";
-      return ["Предметы", `${semNo(sCode)}-й семестр (из 8)`];
-    }
-    case "tasks": {
-      const sCode = S.sem.tasks || (d && d.semester) || "13";
-      return ["Задания", d ? `${semNo(sCode)}-й семестр · ${d.count} ${plural(d.count, "задание", "задания", "заданий")}` : `${semNo(sCode)}-й семестр`];
-    }
-    case "resources": {
-      const sCode = S.sem.resources || (d && d.semester) || "13";
-      return S.res.subject ? [S.res.name || "Ресурсы", "Материалы предмета"] : ["Ресурсы", `${semNo(sCode)}-й семестр`];
-    }
-    case "contract": return ["Контракт", "Оплата и расчёт по месяцам"];
-    case "settings": return ["Уведомления", S.notifBranch === "bot" ? "Ветвь «Бот Джарвис» · время и частота" : "Ветвь «Helper» · учёба и расписание"];
-    default: return ["Ещё", "Разделы Helper и инструменты"];
+    case "nb": return ["Пропуски (НБ)", `${semNo(S.sem.nb || (d && d.report && d.report.semester) || "13")}-й семестр`];
+    case "exams": return ["Экзамены", `${semNo(S.sem.exams || (d && d.semester) || "13")}-й семестр`];
+    case "grades": return ["Оценки и GPA", `${semNo(S.sem.grades || (d && d.perf && d.perf.semester) || "13")}-й семестр`];
+    case "tasks": return ["Задания", `${semNo(S.sem.tasks || (d && d.semester) || "13")}-й семестр`];
+    case "subjects": return ["Предметы", `${semNo(S.sem.subjects || (d && d.perf && d.perf.semester) || "13")}-й семестр`];
+    case "resources": return S.res.subject ? [S.res.name || "Ресурсы", "Материалы"] : ["Ресурсы", `${semNo(S.sem.resources || (d && d.semester) || "13")}-й семестр`];
+    case "contract": return ["Контракт", "Оплата и остаток"];
+    case "settings": return ["Уведомления", S.notifBranch === "bot" ? "Бот Джарвис" : "Helper / HEMIS"];
+    default: return ["Ещё", "Инструменты и настройки"];
   }
 }
-const RENDER = {
-  schedule: renderSchedule,
-  nb: renderNb,
-  exams: renderExams,
-  grades: renderGrades,
-  more: renderMore,
-  subjects: renderSubjects,
-  tasks: renderTasks,
-  resources: renderResources,
-  contract: renderContract,
-  settings: renderSettings,
-};
+
+const RENDER = { pulse: renderPulse, schedule: renderSchedule, nb: renderNb, exams: renderExams, grades: renderGrades, more: renderMore, subjects: renderSubjects, tasks: renderTasks, resources: renderResources, contract: renderContract, settings: renderSettings };
 
 function errorView(e) {
   const kinds = {
     not_connected: ["🔌", "HEMIS не подключён", "Откройте бота: Меню → Hemis → «Войти»."],
-    unauthorized: ["🔒", "Нет доступа", "Откройте приложение кнопкой из бота — данные видит только владелец."],
-    network: ["📡", "Нет связи с ботом", "Проверьте интернет. Если бот на бесплатном Render, он мог заснуть — повторите через 30 секунд."],
-    noapi: ["🧭", "Не указан адрес бота", "Откройте приложение кнопкой из бота или задайте API_URL в config.js."],
-    hemis: ["🏫", "HEMIS не отвечает", e && e.message ? e.message : "Попробуйте позже."],
+    unauthorized: ["🔒", "Нет доступа", "Откройте приложение кнопкой из бота."],
+    network: ["📡", "Нет связи с ботом", "Проверьте интернет и повторите попытку."],
+    noapi: ["🧭", "Не указан адрес бота", "Откройте приложение кнопкой из бота."],
+    hemis: ["🏫", "HEMIS не отвечает", (e && e.message) || "Попробуйте позже."],
   };
-  const [emoji, title, text] = kinds[e && e.kind] || ["⚠️", "Что-то пошло не так", (e && e.message) || "Попробуйте ещё раз."];
-  return `<div class="card err"><div class="big">${emoji}</div><h3>${esc(title)}</h3><p class="muted small">${esc(text)}</p><button class="btn" data-a="retry">Повторить</button></div>`;
+  const [emoji, title, text] = kinds[e && e.kind] || ["⚠️", "Ошибка", (e && e.message) || "Попробуйте ещё раз."];
+  return `<div class="card err-box"><div class="big">${emoji}</div><b>${esc(title)}</b><p class="muted small">${esc(text)}</p><button class="btn sm" style="margin-top:8px" data-a="retry">Повторить</button></div>`;
 }
 
-// ---------------------------------------------------------------- DOM
+// ---------------------------------------------------------------- DOM runtime
 if (typeof document !== "undefined") {
   const $ = (id) => document.getElementById(id);
   const view = $("view"), loadbar = $("loadbar"), refreshBtn = $("refresh"), themeBtn = $("themeBtn");
-  const SKELETON = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
-  let toastTimer = 0, lastHtml = "", lastIcon = "", pressing = false, deferred = null, lastFetch = 0;
+  const SKELETON = '<div class="skel" style="height:112px"></div><div class="skel" style="height:76px"></div><div class="skel" style="height:130px"></div>';
+  let toastTimer = 0, lastHtml = "", pressing = false, deferred = null;
+
+  $("back").innerHTML = ico("left");
+  $("refreshIco").innerHTML = ico("refresh");
 
   function renderTabsBar() {
-    $("tabsIn").innerHTML = TABS.map((t) => (
-      `<button class="tab ${S.tab === t.id ? "on" : ""}" data-a="tab" data-tab="${t.id}">${ico(t.icon)}<span>${t.label}</span></button>`
-    )).join("");
+    $("tabsIn").innerHTML = TABS.map((t) =>
+      `<button class="tab ${S.tab === t.id && !S.sub ? "on" : ""}" data-a="tab" data-tab="${t.id}">${ico(t.icon)}<span>${t.label}</span></button>`
+    ).join("");
   }
   renderTabsBar();
 
-  $("back").innerHTML = ico("left");
-  $("stampIco").innerHTML = ico("clock");
-
   function toast(text) {
     const el = $("toast"); el.textContent = text; el.classList.add("show");
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
   }
-  const haptic = (kind) => { try { tg && tg.HapticFeedback && (kind ? tg.HapticFeedback.notificationOccurred(kind) : tg.HapticFeedback.selectionChanged()); } catch (e) { /* ignore */ } };
+  const haptic = (kind) => {
+    try {
+      if (!tg || !tg.HapticFeedback) return;
+      if (kind) tg.HapticFeedback.notificationOccurred(kind);
+      else tg.HapticFeedback.selectionChanged();
+    } catch (e) { /* ignore */ }
+  };
 
   function syncThemeIcon() {
     if (!themeBtn) return;
-    const isLight = document.documentElement.dataset.theme === "light";
-    themeBtn.innerHTML = ico(isLight ? "moon" : "sun");
+    themeBtn.innerHTML = ico(document.documentElement.dataset.theme === "light" ? "moon" : "sun");
   }
-
   function applyTheme(light) {
     document.documentElement.dataset.theme = light ? "light" : "dark";
     syncThemeIcon();
-    const bgHex = light ? "#f1f5f9" : "#060b16";
-    const barHex = light ? "#ffffff" : "#060b16";
+    const bgHex = light ? "#f5f6f8" : "#090a0d";
+    const barHex = light ? "#ffffff" : "#0e1015";
     try {
       tg && tg.setHeaderColor && tg.setHeaderColor(bgHex);
       tg && tg.setBackgroundColor && tg.setBackgroundColor(bgHex);
       tg && tg.setBottomBarColor && tg.setBottomBarColor(barHex);
     } catch (e) { /* ignore */ }
   }
-
   function setThemeFromEnv() {
     let saved = null;
     try { saved = localStorage.getItem("jv2:theme"); } catch (e) { /* ignore */ }
@@ -721,49 +807,95 @@ if (typeof document !== "undefined") {
   function chrome(id, data, stamp) {
     const [title, sub] = heroFor(id, data);
     $("title").textContent = title;
-    $("subtitle").textContent = sub || "\u00a0";
+    $("subtitle").textContent = sub || "";
     $("stamp").textContent = stampText(stamp);
-    const icon = HERO_ICON[id] || "calendar";
-    if (icon !== lastIcon) { $("badge").innerHTML = ico(icon); lastIcon = icon; }
     renderTabsBar();
     $("back").hidden = !S.sub;
     refreshBtn.hidden = id === "more";
     try { if (tg && tg.BackButton) S.sub ? tg.BackButton.show() : tg.BackButton.hide(); } catch (e) { /* ignore */ }
   }
 
-  function afterPaint() {
-    requestAnimationFrame(() => view.querySelectorAll(".progress i[data-w]").forEach((i) => { i.style.width = `${i.dataset.w}%`; }));
-  }
-
   function show(html, anim) {
     if (html === lastHtml && !anim) return;
     view.innerHTML = html; lastHtml = html;
     view.className = "";
-    if (anim) { const cls = `enter-${anim}`; void view.offsetWidth; view.classList.add(cls); setTimeout(() => view.classList.remove(cls), 260); }
-    afterPaint();
+    if (anim) { const cls = `enter-${anim}`; void view.offsetWidth; view.classList.add(cls); setTimeout(() => view.classList.remove(cls), 200); }
+    requestAnimationFrame(() => view.querySelectorAll(".progress i[data-w]").forEach((i) => { i.style.width = `${i.dataset.w}%`; }));
   }
 
   function paint(id, data, stamp, opts = {}) {
     if (opts.token != null && opts.token !== reqId) return;
     if (opts.bg && pressing) { deferred = () => paint(id, data, stamp, opts); return; }
     chrome(id, data, stamp);
-    if (!data && id !== "more") {
-      // Сохраняем полосу семестров на экране во время подгрузки, чтобы переключение семестров никогда не зависало
+    if (!data && id !== "more" && id !== "pulse") {
       if (SEM_SCREENS.has(id) && !(id === "resources" && S.res.subject)) {
-        show(semPager(null, S.sem[id] || "13") + SKELETON, opts.anim);
-      } else {
-        show(SKELETON, opts.anim);
-      }
+        show(studyHeader() + semPager(null, S.sem[id] || "13") + SKELETON, opts.anim);
+      } else show(SKELETON, opts.anim);
       return;
     }
     show(RENDER[id](data), opts.anim);
-    const [t, s] = heroFor(id, data);
-    $("title").textContent = t; $("subtitle").textContent = s || "\u00a0";
+  }
+
+  function readPulseBundle() {
+    const pSched = `schedule?week=0&m=${mondayOf(0)}`;
+    const eS = cget(pSched), eT = cget("tasks"), eN = cget("nb"), eE = cget("exams"), eG = cget("grades");
+    const times = [eS, eT, eN, eE, eG].filter(Boolean).map((x) => x.t);
+    return {
+      hasAny: times.length > 0,
+      stamp: times.length ? Math.max(...times) : 0,
+      bundle: {
+        schedule: eS && eS.data,
+        tasks: eT && eT.data,
+        nb: eN && eN.data,
+        exams: eE && eE.data,
+        grades: eG && eG.data,
+      },
+    };
+  }
+
+  async function loadPulse(my, force, anim) {
+    const snap = readPulseBundle();
+    if (snap.hasAny) paint("pulse", snap.bundle, snap.stamp, { anim, token: my });
+    else { chrome("pulse", null, 0); show(SKELETON, anim); }
+
+    const pSched = `schedule?week=0&m=${mondayOf(0)}`;
+    const jobs = [
+      [pSched, TTL.schedule],
+      ["tasks", TTL.tasks],
+      ["nb", TTL.nb],
+      ["exams", TTL.exams],
+      ["grades", TTL.grades],
+    ].filter(([p, ttl]) => {
+      if (force) return true;
+      const e = cget(p);
+      return !e || Date.now() - e.t >= ttl;
+    });
+
+    if (!jobs.length) { setBusy(false); return; }
+    setBusy(true);
+    let okCount = 0, lastErr = null;
+    await Promise.allSettled(jobs.map(async ([p]) => {
+      try {
+        const data = await api(p, force);
+        cset(p, data);
+        okCount++;
+        if (my === reqId) {
+          const nextSnap = readPulseBundle();
+          paint("pulse", nextSnap.bundle, Date.now(), { bg: true, token: my });
+        }
+      } catch (err) { lastErr = err; }
+    }));
+    if (my !== reqId) return;
+    setBusy(false);
+    if (!okCount && !snap.hasAny && lastErr) show(errorView(lastErr));
+    else if (!okCount && snap.hasAny && force) toast("Нет связи — показаны кэшированные данные");
   }
 
   async function load(opts = {}) {
     const { force = false, anim = "fade" } = opts;
-    const my = ++reqId, id = current(), path = pathFor(id);
+    const my = ++reqId, id = current();
+    if (id === "pulse") return loadPulse(my, force, anim);
+    const path = pathFor(id);
     if (!path) { paint(id, null, 0, { anim }); setBusy(false); return; }
     const e = cget(path);
     paint(id, e && e.data, e && e.t, { anim });
@@ -771,19 +903,16 @@ if (typeof document !== "undefined") {
     setBusy(true);
     try {
       const data = await api(path, force);
-      cset(path, data); lastFetch = Date.now();
-      paint(id, data, lastFetch, { bg: true, token: my });
+      cset(path, data);
+      paint(id, data, Date.now(), { bg: true, token: my });
     } catch (err) {
       if (my !== reqId) return;
-      if (e) {
-        toast("Нет связи — показаны сохранённые данные");
-      } else if (id === "nb") {
-        // Если по выбранному семестру в HEMIS нет данных НБ — выводим «Нет пропусков», сохраняя переключатель семестров
+      if (e) toast("Нет связи — показаны сохранённые данные");
+      else if (id === "nb") {
         const fallbackSem = String(S.sem.nb || "13");
-        const emptyNb = { semesters: { codes: ALL_SEM_CODES, current: "13" }, report: { semester: fallbackSem, semester_no: semNo(fallbackSem), limit_pct: 25, total_hours: 0, excused_total: 0, rows: [] } };
-        paint(id, emptyNb, Date.now(), { token: my });
+        paint(id, { semesters: { codes: ALL_SEM_CODES, current: "13" }, report: { semester: fallbackSem, semester_no: semNo(fallbackSem), limit_pct: 25, total_hours: 0, excused_total: 0, rows: [] } }, Date.now(), { token: my });
       } else {
-        show((SEM_SCREENS.has(id) ? semPager(null, S.sem[id] || "13") : "") + errorView(err));
+        show((SEM_SCREENS.has(id) ? studyHeader() + semPager(null, S.sem[id] || "13") : "") + errorView(err));
       }
     } finally {
       if (my === reqId) setBusy(false);
@@ -792,86 +921,63 @@ if (typeof document !== "undefined") {
 
   const repaint = (anim) => {
     const id = current();
+    if (id === "pulse") { const s = readPulseBundle(); paint("pulse", s.bundle, s.stamp, { anim }); return; }
     const e = cget(pathFor(id));
     if (e) paint(id, e.data, e.t, { anim });
   };
 
   const goBack = () => {
-    if (S.sub === "resources" && S.res.subject) { S.res.subject = null; } else { S.sub = null; }
+    if (S.sub === "resources" && S.res.subject) S.res.subject = null;
+    else S.sub = null;
     S.open.clear(); load({ anim: "prev" });
   };
 
   function copyFallback(text) {
     const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
     ta.remove();
   }
 
   const actions = {
-    tab: (el) => {
-      const t = el.dataset.tab;
-      if (S.tab !== t || S.sub) {
-        S.tab = t;
-        S.sub = null;
-        S.open.clear();
-        load();
-      }
-    },
+    tab: (el) => { const t = el.dataset.tab; if (S.tab !== t || S.sub) { S.tab = t; S.sub = null; S.open.clear(); load(); } },
+    studytab: (el) => { S.studyTab = el.dataset.k; S.open.clear(); load({ anim: "fade" }); },
+    jumpstudy: (el) => { S.tab = "study"; S.sub = null; S.studyTab = el.dataset.k; S.open.clear(); load({ anim: "next" }); },
     open: (el) => { S.sub = el.dataset.sub; S.open.clear(); if (S.sub === "resources") S.res.subject = null; load({ anim: "next" }); },
     back: goBack,
     theme: () => {
       const nextLight = document.documentElement.dataset.theme !== "light";
-      try { localStorage.setItem("jv2:theme", nextLight ? "light" : "dark"); } catch (e) { /* ignore */ }
+      try { localStorage.setItem("jv2:theme", nextLight ? "light" : "dark"); } catch (e) {}
       applyTheme(nextLight);
-      toast(nextLight ? "Светлая тема" : "Тёмная тема");
     },
-    refresh: () => {
-      if (refreshBtn.classList.contains("spin")) return; // уже грузим — не плодим запросы
-      toast("Обновляю…"); load({ force: true, anim: null });
-    },
+    refresh: () => { if (!refreshBtn.classList.contains("spin")) load({ force: true, anim: null }); },
     retry: () => load({ force: true }),
     week: (el) => { const dir = Number(el.dataset.dir); S.week += dir; S.day = null; load({ anim: dir > 0 ? "next" : "prev" }); },
     day: (el) => { S.day = el.dataset.day; repaint("fade"); },
     sem: (el) => {
-      const id = current(), e = cget(pathFor(id));
-      const sems = normalizeSemesters(e && e.data && e.data.semesters);
-      const dir = Number(el.dataset.dir);
-      const cur = String(S.sem[id] || sems.current || "13");
-      const curIdx = sems.codes.indexOf(cur);
-      const i = (curIdx >= 0 ? curIdx : 2) + dir;
+      const id = current(), e = cget(pathFor(id)), sems = normalizeSemesters(e && e.data && e.data.semesters);
+      const dir = Number(el.dataset.dir), cur = String(S.sem[id] || sems.current || "13");
+      const i = (sems.codes.indexOf(cur) >= 0 ? sems.codes.indexOf(cur) : 2) + dir;
       if (i < 0 || i >= sems.codes.length) return;
-      S.sem[id] = sems.codes[i];
-      if (id === "exams") S.examTab = null;
-      S.open.clear();
+      S.sem[id] = sems.codes[i]; if (id === "exams") S.examTab = null; S.open.clear();
       load({ anim: dir > 0 ? "next" : "prev" });
     },
     semjump: (el) => {
       const id = current(), code = String(el.dataset.code || "");
-      if (!code) return;
-      const prevCode = String(S.sem[id] || "13");
-      if (code === prevCode) return;
-      S.sem[id] = code;
-      if (id === "exams") S.examTab = null;
-      S.open.clear();
-      load({ anim: Number(code) > Number(prevCode) ? "next" : "prev" });
+      if (!code || code === String(S.sem[id] || "13")) return;
+      const prev = Number(S.sem[id] || 13);
+      S.sem[id] = code; if (id === "exams") S.examTab = null; S.open.clear();
+      load({ anim: Number(code) > prev ? "next" : "prev" });
     },
     examtab: (el) => { S.examTab = el.dataset.k; repaint("fade"); },
     notifbranch: (el) => { S.notifBranch = el.dataset.k; repaint("fade"); },
     notiffreq: async (el) => {
       const key = el.dataset.key, val = el.dataset.val;
       if (!key || val == null) return;
-      saveNotifPref(key, val);
-      repaint(null);
-      try {
-        await post("settings", { pref_key: key, pref_value: val });
-      } catch (e) { /* сохранён локально */ }
-      toast("Настройка сохранена ✅");
-      haptic("success");
+      saveNotifPref(key, val); repaint(null);
+      try { await post("settings", { pref_key: key, pref_value: val }); } catch (e) {}
+      toast("Сохранено ✅"); haptic("success");
     },
     tasktab: (el) => { S.taskTab = el.dataset.k; repaint("fade"); },
     reskind: (el) => { S.resKind = el.dataset.k; repaint("fade"); },
@@ -889,23 +995,14 @@ if (typeof document !== "undefined") {
     link: (el, ev) => { ev.preventDefault(); const u = el.dataset.url; tg && tg.openLink ? tg.openLink(u) : window.open(u, "_blank"); },
     copy: async (el) => {
       const txt = el.dataset.text || "";
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(txt);
-        else copyFallback(txt);
-        toast("Скопировано в буфер");
-        haptic("success");
-      } catch (e) {
-        copyFallback(txt);
-        toast("Скопировано");
-      }
+      try { navigator.clipboard ? await navigator.clipboard.writeText(txt) : copyFallback(txt); toast("Скопировано"); haptic("success"); }
+      catch (e) { copyFallback(txt); toast("Скопировано"); }
     },
     send: async (el) => {
       const d = el.dataset, label = el.innerHTML;
-      el.disabled = true; el.innerHTML = "Отправляю в чат…";
-      try {
-        await post("send", { type: d.type, id: d.id, subject: d.subject, semester: d.semester });
-        toast("Готово — карточка и файлы отправлены в чат с ботом"); haptic("success");
-      } catch (err) { toast((err && err.message) || "Не удалось отправить"); haptic("error"); }
+      el.disabled = true; el.textContent = "Отправляю…";
+      try { await post("send", { type: d.type, id: d.id, subject: d.subject, semester: d.semester }); toast("Отправлено в чат ✅"); haptic("success"); }
+      catch (err) { toast((err && err.message) || "Ошибка отправки"); haptic("error"); }
       el.disabled = false; el.innerHTML = label;
     },
     setting: async (el) => {
@@ -915,9 +1012,8 @@ if (typeof document !== "undefined") {
         await post("settings", { key, value: on });
         const path = pathFor("settings"), e = cget(path);
         if (e) {
-          let t = (e.data.toggles || []).find((x) => x.key === key);
-          if (t) t.on = on;
-          else { e.data.toggles = [...(e.data.toggles || []), { key, label: key, on }]; }
+          const t = (e.data.toggles || []).find((x) => x.key === key);
+          if (t) t.on = on; else e.data.toggles = [...(e.data.toggles || []), { key, label: key, on }];
           cset(path, e.data);
         }
       } catch (err) { sw.classList.toggle("on", !on); toast("Не удалось сохранить"); }
@@ -926,127 +1022,55 @@ if (typeof document !== "undefined") {
 
   document.addEventListener("click", (ev) => {
     const el = ev.target.closest("[data-a]");
-    if (!el || el.disabled) return;
-    if (el.tagName === "INPUT" && el.type === "time") return;
-    const a = el.dataset.a;
-    if (!["toggle", "refresh", "send", "copy", "setting", "lesson"].includes(a)) haptic();
-    if (actions[a]) actions[a](el, ev);
+    if (!el || el.disabled || (el.tagName === "INPUT" && el.type === "time")) return;
+    if (!["refresh", "send", "copy", "setting"].includes(el.dataset.a)) haptic();
+    if (actions[el.dataset.a]) actions[el.dataset.a](el, ev);
   });
 
   document.addEventListener("change", async (ev) => {
     const el = ev.target.closest("input[data-a='notiftime']");
-    if (!el) return;
-    const key = el.dataset.key, val = el.value;
-    if (!key || !val) return;
-    try {
-      await post("settings", { pref_key: key, pref_value: val });
-    } catch (e) {
-      toast((e && e.message) || "Не удалось сохранить — бот не получил время");
-      haptic("error");
-      return;
-    }
-    saveNotifPref(key, val);
-    repaint(null);
-    toast(`Время обновлено: ${val} ⏰`);
-    haptic("success");
+    if (!el || !el.dataset.key || !el.value) return;
+    try { await post("settings", { pref_key: el.dataset.key, pref_value: el.value }); }
+    catch (e) { toast((e && e.message) || "Не удалось сохранить"); haptic("error"); return; }
+    saveNotifPref(el.dataset.key, el.value); repaint(null);
+    toast(`Время: ${el.value} ⏰`); haptic("success");
   });
 
-  document.addEventListener("keydown", (ev) => { if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches && ev.target.matches("[role='button']")) { ev.preventDefault(); ev.target.click(); } });
-
-  const release = () => { pressing = false; if (deferred) { const f = deferred; deferred = null; setTimeout(f, 60); } };
+  const release = () => { pressing = false; if (deferred) { const f = deferred; deferred = null; setTimeout(f, 50); } };
   document.addEventListener("pointerdown", () => { pressing = true; }, { passive: true, capture: true });
   ["pointerup", "pointercancel"].forEach((t) => document.addEventListener(t, release, { passive: true, capture: true }));
 
   setInterval(() => {
     if (document.hidden) return;
-    const id = current(), e = cget(pathFor(id));
+    const id = current();
+    if (id === "pulse") { const s = readPulseBundle(); if (s.hasAny) paint("pulse", s.bundle, s.stamp, { bg: true, token: reqId }); return; }
+    const e = cget(pathFor(id));
     if (!e) return;
     $("stamp").textContent = stampText(e.t);
     if (id === "schedule" && S.week === 0) paint(id, e.data, e.t, { bg: true, token: reqId });
   }, 30000);
 
   if (tg) {
-    tg.ready();
-    tg.expand();
-    try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) { /* ignore */ }
-    try { if (tg.requestFullscreen) tg.requestFullscreen(); } catch (e) { /* ignore */ }
+    try { tg.requestFullscreen && tg.requestFullscreen(); } catch (e) {}
     tg.onEvent && tg.onEvent("themeChanged", setThemeFromEnv);
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
   setThemeFromEnv();
   load();
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) load({ anim: null });
-  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load({ anim: null }); });
 }
 
-// ---------------------------------------------------------------- интерактивное демо-состояние (все 8 семестров: 11..18)
-const demoToggleState = {
-  // Ветвь «Бот»
-  bot_briefing_on: true,
-  bot_finance_on: true,
-  bot_subs_on: true,
-  bot_model_footer: true,
-  // Ветвь «HEMIS»
-  morning_on: true,
-  lesson_alert_on: true,
-  prep_on: false,
-  changes_on: true,
-  nb_on: true,
-  tasks_on: true,
-  grades_on: true,
-  deadlines_on: true,
-  exams_on: true,
-};
+// ---------------------------------------------------------------- Demo state
+const demoToggleState = { bot_briefing_on: true, bot_finance_on: true, bot_model_footer: true, morning_on: true, lesson_alert_on: true, prep_on: false, changes_on: true, nb_on: true, tasks_on: true, grades_on: true, deadlines_on: true, exams_on: true };
 
 function demoSubjectsForSem(sem) {
   const sc = (name, ball, max) => ({ name, ball, max, pct: max ? Math.round((ball / max) * 1000) / 10 : null });
   const catalog = {
-    "11": [
-      { id: "101", name: "Iqtisodiyot nazariyasi", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 91, 100), grade5: 5, current: sc("Joriy", 28, 30), mid: sc("Oraliq", 37, 40), final: sc("Yakuniy", 26, 30), extra: [] },
-      { id: "102", name: "Oliy matematika I", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 87, 100), grade5: 5, current: sc("Joriy", 26, 30), mid: sc("Oraliq", 35, 40), final: sc("Yakuniy", 26, 30), extra: [] },
-      { id: "103", name: "Akademik yozuv va xorijiy til", kind: "Majburiy", load: 90, credit: 4, overall: sc("Umumiy", 84, 100), grade5: 4, current: sc("Joriy", 25, 30), mid: sc("Oraliq", 34, 40), final: sc("Yakuniy", 25, 30), extra: [] },
-      { id: "104", name: "Axborot texnologiyalari", kind: "Majburiy", load: 60, credit: 4, overall: sc("Umumiy", 93, 100), grade5: 5, current: sc("Joriy", 29, 30), mid: sc("Oraliq", 37, 40), final: sc("Yakuniy", 27, 30), extra: [] },
-    ],
-    "12": [
-      { id: "201", name: "Makroiqtisodiyot I", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 89, 100), grade5: 5, current: sc("Joriy", 27, 30), mid: sc("Oraliq", 36, 40), final: sc("Yakuniy", 26, 30), extra: [] },
-      { id: "202", name: "Ehtimollar nazariyasi va mat. statistika", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 86, 100), grade5: 5, current: sc("Joriy", 26, 30), mid: sc("Oraliq", 35, 40), final: sc("Yakuniy", 25, 30), extra: [] },
-      { id: "203", name: "Menejment asoslari", kind: "Majburiy", load: 90, credit: 4, overall: sc("Umumiy", 82, 100), grade5: 4, current: sc("Joriy", 25, 30), mid: sc("Oraliq", 33, 40), final: sc("Yakuniy", 24, 30), extra: [] },
-      { id: "204", name: "O‘zbekistonning eng yangi tarixi", kind: "Tanlov", load: 60, credit: 4, overall: sc("Umumiy", 90, 100), grade5: 5, current: sc("Joriy", 28, 30), mid: sc("Oraliq", 36, 40), final: sc("Yakuniy", 26, 30), extra: [] },
-    ],
     "13": [
       { id: "1", name: "Ekonometrika", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 45, 50), grade5: 5, current: sc("Joriy", 26, 30), mid: sc("1-ON", 19, 20), final: null, extra: [] },
       { id: "2", name: "Statistika", kind: "Majburiy", load: 90, credit: 4, overall: sc("Umumiy", 41, 50), grade5: 4, current: sc("Joriy", 24, 30), mid: sc("1-ON", 17, 20), final: null, extra: [] },
       { id: "3", name: "Strategik marketing", kind: "Majburiy", load: 90, credit: 4, overall: sc("Umumiy", 36, 50), grade5: 4, current: sc("Joriy", 21, 30), mid: sc("1-ON", 15, 20), final: null, extra: [] },
       { id: "4", name: "Philosophy", kind: "Tanlov", load: 60, credit: 2, overall: sc("Umumiy", 88, 100), grade5: 5, current: sc("Joriy", 28, 30), mid: sc("Oraliq", 36, 40), final: sc("Yakuniy", 24, 30), extra: [] },
-    ],
-    "14": [
-      { id: "401", name: "Amaliy ekonometrika II (Panel Data)", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "402", name: "Mikroiqtisodiyot II", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "403", name: "Korporativ moliya", kind: "Majburiy", load: 90, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "404", name: "Buxgalteriya hisobi va audit", kind: "Tanlov", load: 90, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-    ],
-    "15": [
-      { id: "501", name: "Moliya bozorlari va institutlari", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "502", name: "Davlat byudjeti va soliq siyosati", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "503", name: "Xalqaro iqtisodiyot", kind: "Majburiy", load: 90, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "504", name: "Raqamli iqtisodiyot va AI tahlil", kind: "Tanlov", load: 90, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-    ],
-    "16": [
-      { id: "601", name: "Investitsion loyihalar tahlili", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "602", name: "O‘yinlar nazariyasi va sanoat iqtisodiyoti", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "603", name: "Bank ishi va pul-kredit siyosati", kind: "Majburiy", load: 90, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "604", name: "Ma’lumotlar tahlili (Python & R)", kind: "Tanlov", load: 90, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-    ],
-    "17": [
-      { id: "701", name: "Makroiqtisodiy modellash (DSGE)", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "702", name: "Iqtisodiy o‘sish va rivojlanish", kind: "Majburiy", load: 120, credit: 6, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "703", name: "Risk-menejment va sug‘urta", kind: "Tanlov", load: 90, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "704", name: "Ilmiy-tadqiqot metodologiyasi", kind: "Majburiy", load: 60, credit: 4, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-    ],
-    "18": [
-      { id: "801", name: "Bitiruv malakaviy ishi (Дипломный проект)", kind: "Majburiy", load: 240, credit: 12, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
-      { id: "802", name: "Ishlab chiqarish va diplomoldi amaliyoti", kind: "Majburiy", load: 180, credit: 8, overall: sc("Umumiy", 0, 100), grade5: null, current: null, mid: null, final: null, extra: [] },
     ],
   };
   return catalog[sem] || catalog["13"];
@@ -1057,18 +1081,16 @@ function demoApi(path, method, body) {
   const q = new URLSearchParams(path.split("?")[1] || ""), kind = path.split("?")[0];
   const sems = { codes: ALL_SEM_CODES, current: "13" };
   const sem = sems.codes.includes(q.get("semester")) ? q.get("semester") : "13";
-  const wait = (v) => new Promise((r) => setTimeout(() => r(v), 50));
+  const wait = (v) => new Promise((r) => setTimeout(() => r(v), 30));
   const d = (n) => iso(addDays(base, n));
 
   if (method === "POST") {
     if (kind === "settings" && body) {
       if (body.key) demoToggleState[body.key] = Boolean(body.value);
       if (body.pref_key) saveNotifPref(body.pref_key, body.pref_value);
-      return wait({ ok: true });
     }
     return wait({ ok: true });
   }
-
   if (kind === "schedule") {
     const off = Number(q.get("week") || 0), mon = addDays(parseISO(mondayOf(0)), off * 7);
     const plan = [
@@ -1078,83 +1100,41 @@ function demoApi(path, method, body) {
       ["4", "13:00", "14:20", "Strategik marketing", "Лекция", "1-101", "Madaminova S. N."],
     ];
     const lessons = [];
-    [0, 1, 2, 3, 4].forEach((i) => plan.forEach((p, j) => { if ((i + j) % 4 !== 3) lessons.push({ date: iso(addDays(mon, i)), pair: `${p[0]} пара`, start: p[1], end: p[2], subject: p[3], type: p[4], room: p[5], building: "Корпус A", teacher: p[6], group: "" }); }));
+    [0, 1, 2, 3, 4, 5].forEach((i) => plan.forEach((p, j) => { if ((i + j) % 4 !== 3) lessons.push({ date: iso(addDays(mon, i)), pair: `${p[0]} пара`, start: p[1], end: p[2], subject: p[3], type: p[4], room: p[5], building: "Корпус A", teacher: p[6], group: "" }); }));
     return wait({ today, monday: iso(mon), sunday: iso(addDays(mon, 6)), published: Math.abs(off) < 3, lessons: Math.abs(off) < 3 ? lessons : [] });
   }
   if (kind === "nb") {
-    const rows13 = [
+    const rows = sem === "13" ? [
       { subject: "Ekonometrika", hours: 6, pairs: 3, limit_hours: 15, hours_src: "manual", status: "ok", left_pairs: 4, records: [{ date: "2026-10-19", pair: "1", type: "Лекция", unexcused_h: 2 }] },
-      { subject: "Philosophy", hours: 14, pairs: 7, limit_hours: 15, hours_src: "manual", status: "warn", left_pairs: 0, records: [{ date: "2026-10-12", pair: "2", type: "Лекция", unexcused_h: 2 }, { date: "2026-10-19", pair: "3", type: "Практика", unexcused_h: 2 }] },
-      { subject: "Mikroiqtisodiyot", hours: 4, pairs: 2, limit_hours: 15, hours_src: "schedule", status: "ok", left_pairs: 5, records: [{ date: "2026-10-05", pair: "1", type: "Лекция", unexcused_h: 2 }] },
-      { subject: "Statistika", hours: 2, pairs: 1, limit_hours: 15, hours_src: "manual", status: "ok", left_pairs: 6, records: [] },
-    ];
-    const rows12 = [
-      { subject: "Makroiqtisodiyot I", hours: 4, pairs: 2, limit_hours: 15, hours_src: "manual", status: "ok", left_pairs: 5, records: [{ date: "2026-04-14", pair: "2", type: "Практика", unexcused_h: 2 }] },
-    ];
-    const semRows = sem === "13" ? rows13 : sem === "12" ? rows12 : [];
-    const totalH = semRows.reduce((a, r) => a + r.hours, 0);
-    const excH = sem === "13" ? 4 : 0;
-    return wait({ semesters: sems, report: { semester: sem, semester_no: semNo(sem), limit_pct: 25, total_hours: totalH, excused_total: excH, hours_table_missing: [], rows: semRows } });
+      { subject: "Philosophy", hours: 14, pairs: 7, limit_hours: 15, hours_src: "manual", status: "warn", left_pairs: 0, records: [{ date: "2026-10-12", pair: "2", type: "Лекция", unexcused_h: 2 }] },
+    ] : [];
+    return wait({ semesters: sems, report: { semester: sem, semester_no: semNo(sem), limit_pct: 25, total_hours: rows.reduce((a, r) => a + r.hours, 0), excused_total: sem === "13" ? 4 : 0, rows } });
   }
   if (kind === "exams") {
     const ex = (id, subject, group, sheet, n, start, end, room, teacher, k) => ({ id, subject, kind: k || "", group, sheet, date: d(n), start, end, room, teacher });
-    const exams = sem === "13" ? [
-      ex("1", "Ekonometrika", "s", 1, 14, "09:00", "10:20", "3-505", "AKRAMOVA N. M.", "Yakuniy nazorat"),
-      ex("2", "Statistika", "s", 1, 18, "13:00", "14:20", "5-305", "RUSTAMOV A. B.", "Yakuniy nazorat"),
-      ex("3", "Strategik marketing", "2", 1, 3, "10:00", "11:20", "2-214", "MADAMINOVA S. N.", "2-ON"),
-      ex("4", "Mikroiqtisodiyot", "c", 1, 5, "11:30", "12:50", "2-214", "KARIMOV S. R.", "Joriy nazorat"),
-      ex("5", "Ekonometrika", "1", 1, -20, "08:30", "09:50", "5-305", "AKRAMOVA N. M.", "1-ON"),
-    ] : Number(sem) < 13 ? [
-      ex("7", demoSubjectsForSem(sem)[0].name, "s", 1, -90, "09:00", "10:20", "1-101", "SOBIROV T. K.", "Yakuniy nazorat"),
-    ] : [];
-    return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), today, exams });
+    return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), today, exams: sem === "13" ? [ex("1", "Strategik marketing", "2", 1, 3, "10:00", "11:20", "2-214", "MADAMINOVA S. N.", "2-ON"), ex("2", "Ekonometrika", "s", 1, 14, "09:00", "10:20", "3-505", "AKRAMOVA N. M.", "Yakuniy")] : [] });
   }
   if (kind === "grades") {
     const subjects = demoSubjectsForSem(sem);
-    const credits = subjects.reduce((a, s) => a + (s.credit || 0), 0);
-    const isFuture = Number(sem) > 13;
-    const avgPct = isFuture ? null : (sem === "13" ? 85.4 : 88.6);
-    const gpaCalc = isFuture ? null : (sem === "13" ? 4.6 : 4.8);
-    const periodMap = {
-      "11": "09.2025 – 01.2026", "12": "02.2026 – 06.2026",
-      "13": "09.2026 – 01.2027", "14": "02.2027 – 06.2027",
-      "15": "09.2027 – 01.2028", "16": "02.2028 – 06.2028",
-      "17": "09.2028 – 01.2029", "18": "02.2029 – 06.2029",
-    };
-    const perf = { semester: sem, semester_no: semNo(sem), period: periodMap[sem] || "", subjects, credits, avg_pct: avgPct, gpa_calc: gpaCalc };
-    return wait({ semesters: sems, perf });
+    return wait({ semesters: sems, perf: { semester: sem, semester_no: semNo(sem), period: "09.2026 – 01.2027", subjects, credits: subjects.reduce((a, s) => a + s.credit, 0), avg_pct: 85.4, gpa_calc: 4.6 } });
   }
   if (kind === "tasks") {
-    const t = (id, title, subject, n, hh, extra) => ({ id, title, subject, description: "Решите задачи по инструментальным переменным (2SLS) и прикрепите отчёт в формате .docx или .pdf.", kind: "Задание", lesson_type: "Практика", teacher: "Akramova N. M.", max_ball: 10, mark: null, graded: false, overdue: n < 0, status: "", deadline: `${d(n)} ${hh}`, deadline_left: "", attempts: "0/3", files: [{ name: "iv_2sls_tasks.pdf", size: 245000, ext: "pdf" }], my_files: [], sent_at: null, teacher_comment: "", ...extra });
-    const tasks = sem === "13" ? [
-      t("1", "Практикум №8: Эндогенность и метод ИП (2SLS)", "Ekonometrika", 2, "23:59"),
-      t("2", "Кейс-анализ розничной сети Korzinka", "Strategik marketing", 5, "18:00", { files: [{ name: "korzinka_case.docx", size: 180000, ext: "docx" }] }),
-      t("3", "Расчёт ошибки выборки (Задача 8.2)", "Statistika", -1, "12:00"),
-      t("4", "МНК и предпосылки Гаусса-Маркова", "Ekonometrika", -8, "10:00", { graded: true, overdue: false, mark: 9.5, sent_at: d(-9) + " 09:00", teacher_comment: "Отличный пошаговый вывод." }),
-    ] : Number(sem) < 13 ? [
-      t("5", `Итоговый кейс (${semNo(sem)}-й семестр)`, demoSubjectsForSem(sem)[0].name, -60, "18:00", { graded: true, overdue: false, mark: 9.8 }),
-    ] : [];
-    return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), status: "all", count: tasks.length, tasks });
+    const t = (id, title, subject, n, hh, extra) => ({ id, title, subject, description: "Решите задачи и прикрепите отчёт.", kind: "Задание", lesson_type: "Практика", teacher: "Akramova N. M.", max_ball: 10, mark: null, graded: false, overdue: n < 0, deadline: `${d(n)} ${hh}`, attempts: "0/3", files: [{ name: "tasks.pdf", size: 245000, ext: "pdf" }], sent_at: null, ...extra });
+    const tasks = sem === "13" ? [t("1", "Практикум №8: Эндогенность (2SLS)", "Ekonometrika", 2, "23:59"), t("2", "Расчёт ошибки выборки", "Statistika", -1, "12:00"), t("3", "МНК и Гаусс-Марков", "Ekonometrika", -8, "10:00", { graded: true, overdue: false, mark: 9.5 })] : [];
+    return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), count: tasks.length, tasks });
   }
   if (kind === "resources") {
-    if (q.get("subject")) {
-      const r = (id, title, k, files) => ({ id, title, comment: "Конспект лекции, формулы и примеры расчётов.", subject: "Ekonometrika", kind: k, languages: ["Русский"], teacher: "AKRAMOVA N. M.", items: [{ type: "Презентация", comment: "", url: "", files: Array.from({ length: files }, (_, i) => ({ name: `${title}-${i + 1}.pptx`, size: 1800000, ext: "pptx" })) }], files_count: files, links_count: 0 });
-      return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), subject_id: q.get("subject"), resources: [r("1", "Тема 7. Фиктивные переменные и лог-модели", "Лекция", 1), r("2", "Тема 8. Эндогенность и двухшаговый МНК (2SLS)", "Лекция", 2), r("3", "Семинар 8. Разбор задач по ИП", "Практика", 1)] });
-    }
-    const subList = sem === "13" ? [{ id: "149", name: "Ekonometrika", credit: 6, resources: 18 }, { id: "151", name: "Statistika", credit: 4, resources: 14 }, { id: "153", name: "Strategik marketing", credit: 4, resources: 10 }] : demoSubjectsForSem(sem).map((s, idx) => ({ id: String(s.id), name: s.name, credit: s.credit, resources: Number(sem) <= 13 ? 12 - idx * 2 : 4 }));
-    return wait({ semesters: sems, semester: sem, semester_no: semNo(sem), subjects: subList });
+    if (q.get("subject")) return wait({ semesters: sems, semester: sem, subject_id: q.get("subject"), resources: [{ id: "1", title: "Тема 8. Эндогенность (2SLS)", comment: "Конспект лекции.", kind: "Лекция", languages: ["Русский"], teacher: "AKRAMOVA N. M.", items: [{ type: "Презентация", url: "", files: [{ name: "2sls.pptx", size: 1800000 }] }], files_count: 1 }] });
+    return wait({ semesters: sems, semester: sem, subjects: [{ id: "149", name: "Ekonometrika", credit: 6, resources: 18 }, { id: "151", name: "Statistika", credit: 4, resources: 14 }] });
   }
-  if (kind === "contract") return wait({ gpa: 4.6, speciality: "Iqtisodiyot (Экономика)", course: "2-курс", form: "Очная", year: "2026-2027", total: 12000000, paid: 7800000, remaining: 4200000, paid_pct: 65.0, fields_consistent: true });
+  if (kind === "contract") return wait({ gpa: 4.6, speciality: "Iqtisodiyot (Экономика)", course: "2-курс", form: "Очная", year: "2026-2027", total: 12000000, paid: 7800000, remaining: 4200000, paid_pct: 65.0 });
   if (kind === "settings") {
     const allKeys = [...BOT_TOGGLE_META, ...HEMIS_TOGGLE_META];
-    return wait({
-      auth_failed: false,
-      last_ok_at: new Date().toISOString(),
-      prefs: getNotifPrefs(),
-      toggles: allKeys.map(([key, label]) => ({ key, label, on: key in demoToggleState ? demoToggleState[key] : true })),
-    });
+    return wait({ auth_failed: false, last_ok_at: new Date().toISOString(), prefs: getNotifPrefs(), toggles: allKeys.map(([key, label]) => ({ key, label, on: key in demoToggleState ? demoToggleState[key] : true })) });
   }
   return wait({});
 }
 
-if (typeof module !== "undefined") module.exports = { nowTk, lessonState, hhmm, lessonCard, mondayOf, normalizeSemesters, renderSchedule, renderNb, renderExams, renderGrades, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, esc, pathFor, minutesLeft, leftLabel, heroFor };
+if (typeof module !== "undefined") {
+  module.exports = { nowTk, lessonState, hhmm, lessonCard, mondayOf, normalizeSemesters, renderPulse, renderSchedule, renderNb, renderExams, renderGrades, renderSubjects, renderTasks, renderResources, renderContract, renderSettings, renderMore, demoApi, S, errorView, esc, pathFor, minutesLeft, leftLabel, heroFor };
+}

@@ -4,8 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="color-scheme" content="dark light">
-  <title>Helper · Учёба</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Jarvis · Учёба</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
     (function () {
@@ -14,35 +13,96 @@
       try { saved = localStorage.getItem("jv2:theme"); } catch (e) {}
       var light = saved ? saved === "light" : (tg ? tg.colorScheme === "light" : matchMedia("(prefers-color-scheme: light)").matches);
       document.documentElement.dataset.theme = light ? "light" : "dark";
-      var api = new URLSearchParams(location.search).get("api");
-      if (api) { var l = document.createElement("link"); l.rel = "preconnect"; l.href = api; document.head.appendChild(l); }
+      var bg = light ? "#f5f6f8" : "#090a0d";
+      var bar = light ? "#ffffff" : "#0e1015";
+      if (tg) {
+        try { tg.ready(); } catch (e) {}
+        try { tg.expand(); } catch (e) {}
+        try { tg.setHeaderColor && tg.setHeaderColor(bg); } catch (e) {}
+        try { tg.setBackgroundColor && tg.setBackgroundColor(bg); } catch (e) {}
+        try { tg.setBottomBarColor && tg.setBottomBarColor(bar); } catch (e) {}
+        try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
+      }
+      var params = new URLSearchParams(location.search);
+      var api = (params.get("api") || "").replace(/\/$/, "");
+      if (api) {
+        var l = document.createElement("link");
+        l.rel = "preconnect";
+        l.href = api;
+        l.crossOrigin = "anonymous";
+        document.head.appendChild(l);
+        if (tg && tg.initData && !params.has("demo")) {
+          var now = new Date(Date.now() + 5 * 3600000);
+          var dow = (now.getUTCDay() + 6) % 7;
+          var mon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dow));
+          var pad = function (n) { return String(n).padStart(2, "0"); };
+          var mIso = mon.getUTCFullYear() + "-" + pad(mon.getUTCMonth() + 1) + "-" + pad(mon.getUTCDate());
+          var targets = [
+            ["schedule?week=0&m=" + mIso, 600000],
+            ["tasks", 1800000],
+            ["nb", 1800000],
+            ["exams", 10800000],
+            ["grades", 3600000]
+          ];
+          window.__BOOT_FETCH__ = {};
+          var h = { "X-Telegram-Init-Data": tg.initData };
+          for (var i = 0; i < targets.length; i++) {
+            var p = targets[i][0], ttl = targets[i][1], fresh = false;
+            try {
+              var raw = localStorage.getItem("jv2:" + p);
+              if (raw) { var parsed = JSON.parse(raw); if (parsed && Date.now() - parsed.t < ttl) fresh = true; }
+            } catch (e) {}
+            if (!fresh) {
+              window.__BOOT_FETCH__[p] = fetch(api + "/api/" + p, { headers: h })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .catch(function () { return null; });
+            }
+          }
+        }
+      }
+      if ("serviceWorker" in navigator && location.protocol === "https:") {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      }
     })();
   </script>
+  <style>
+    :root{--bg:#090a0d;--text:#f4f5f7;--skel:#151821}
+    [data-theme="light"]{--bg:#f5f6f8;--text:#0f1117;--skel:#e7eaef}
+    html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",Roboto,sans-serif}
+    .skel-boot{height:112px;border-radius:20px;background:var(--skel);margin:12px 16px}
+  </style>
+  <link rel="stylesheet" href="style.css">
   <script src="config.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <div class="loadbar" id="loadbar"></div>
-  <header class="top" id="hero">
-    <div class="top-row">
-      <button class="back" id="back" data-a="back" aria-label="Назад" hidden></button>
-      <div class="badge" id="badge"></div>
-      <div class="top-text">
-        <h1 id="title">Расписание</h1>
-        <p id="subtitle">&nbsp;</p>
+  <header class="topbar" id="hero">
+    <div class="topbar-in">
+      <button class="icon-btn" id="back" data-a="back" aria-label="Назад" hidden></button>
+      <div class="topbar-title grow">
+        <h1 id="title">Главное</h1>
+        <span class="topbar-meta" id="subtitle"></span>
       </div>
-      <div class="top-actions">
-        <button class="stamp" id="refresh" data-a="refresh" aria-label="Обновить"><span id="stampIco"></span><span id="stamp"></span></button>
+      <div class="topbar-actions">
+        <button class="icon-pill" id="refresh" data-a="refresh" aria-label="Обновить">
+          <span class="ico-wrap" id="refreshIco"></span>
+          <span class="stamp-txt" id="stamp"></span>
+        </button>
         <button class="icon-btn" id="themeBtn" data-a="theme" aria-label="Сменить тему"></button>
       </div>
     </div>
   </header>
 
   <main id="view" aria-live="polite">
-    <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+    <div class="skel-boot"></div>
+    <div class="skel-boot" style="height:78px"></div>
+    <div class="skel-boot" style="height:130px"></div>
   </main>
 
-  <nav class="tabs" id="tabs" aria-label="Разделы"><div class="tabs-in" id="tabsIn"></div></nav>
-  <div class="toast" id="toast" role="status"></div>
+  <nav class="dock" id="tabs" aria-label="Разделы">
+    <div class="dock-in" id="tabsIn"></div>
+  </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
